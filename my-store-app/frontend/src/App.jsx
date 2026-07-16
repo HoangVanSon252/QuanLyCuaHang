@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import Inventory from './pages/Inventory/Inventory';
 import POS from './pages/POS/POS';
 import Report from './pages/Report/Report';
+import UserManagement from './pages/UserManagement/UserManagement';
 import MainLayout from './layouts/MainLayout';
 import AuthLayout from './layouts/AuthLayout';
 
@@ -35,7 +36,8 @@ const router = createBrowserRouter([
       { path: "/", element: <Dashboard /> },
       { path: "/inventory", element: <Inventory /> },
       { path: "/pos", element: <POS /> },
-      { path: "/report", element: <Report /> }
+      { path: "/report", element: <Report /> },
+      { path: "/admin/users", element: <UserManagement /> }
     ]
   }
 

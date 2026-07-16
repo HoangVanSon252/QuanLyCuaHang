@@ -142,4 +142,18 @@ const refreshToken = async (req, res) => {
     }
 };
 
-module.exports = { createStoreAdmin, loginUser, refreshToken }
+// Lấy danh sách toàn bộ tài khoản (Chỉ Super Admin)
+const getAllUsers = async (req, res) => {
+    try {
+        if (req.user.role !== 'super_admin') {
+            return res.status(403).json({ message: "Từ chối truy cập. Chỉ Super Admin mới có quyền xem danh sách." });
+        }
+        const users = await userModel.getAllUsers();
+        return res.status(200).json(users);
+    } catch (error) {
+        console.log(error);
+        return res.status(500).json({ message: "Lỗi server" });
+    }
+}
+
+module.exports = { createStoreAdmin, loginUser, refreshToken, getAllUsers }

@@ -36,8 +36,13 @@ const Login = () => {
         localStorage.setItem('token', data.token);
         localStorage.setItem('user', JSON.stringify(data.user));
 
-        // Điều hướng sang trang chủ (Dashboard)
-        navigate('/');
+        // Điều hướng dựa vào Role
+        if (data.user.role === 'super_admin') {
+          navigate('/admin/users');
+        } else {
+          // Điều hướng sang trang chủ (Dashboard) cho cửa hàng bình thường
+          navigate('/');
+        }
       } else {
         setErrorMsg(data.message || 'Sai tài khoản hoặc mật khẩu. Vui lòng thử lại!');
       }

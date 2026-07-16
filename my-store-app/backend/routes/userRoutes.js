@@ -6,6 +6,9 @@ const authMiddleware = require('../middleware/authMiddleware'); // Import middle
 // [POST] /api/users/create-store-admin - Super Admin tạo tài khoản Chủ cửa hàng (Bảo mật: Phải có Token của Super Admin)
 router.post('/create-store-admin', authMiddleware, userController.createStoreAdmin);
 
+// [GET] /api/users - Lấy danh sách tài khoản (Chỉ Super Admin)
+router.get('/', authMiddleware, userController.getAllUsers);
+
 router.post('/login', userController.loginUser);
 
 router.post('/refresh-token', userController.refreshToken);

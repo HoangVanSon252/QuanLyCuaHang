@@ -5,6 +5,7 @@ import { NavLink, useNavigate} from 'react-router-dom';
 
 const Sidebar = () => {
     const navigate = useNavigate();
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
 
   // Hàm xử lý khi bấm nút Đăng xuất
   const handleLogout = () => {
@@ -27,6 +28,19 @@ const Sidebar = () => {
         </div>
         {/* Menu điều hướng sidebar */}
         <nav className='flex flex-col'>
+            {user?.role === 'super_admin' && (
+                <NavLink to='/admin/users'
+                    className={({isActive}) =>{
+                        return `flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm transition-all duration-200  
+                                ${
+                                isActive ? "bg-white text-[#9D2753] font-bold" : "text-gray-500 hover:bg-gray-200"
+                                }
+                                `
+                    }}> 
+                    <span className='text-lg'>👥</span> 
+                    Quản lý tài khoản
+                </NavLink>
+            )}
             <NavLink to='/'
                 className={({isActive}) =>{
                     return `flex items-center gap-3 px-4 py-3.5 rounded-2xl text-sm transition-all duration-200  

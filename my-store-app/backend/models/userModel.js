@@ -28,4 +28,12 @@ const getUserById = async (id) => {
     return rows[0];
 }
 
-module.exports = { getUserByUsername, createUser, getUserById }
+// Lấy tất cả user (Dành cho Admin)
+const getAllUsers = async () => {
+    const [rows] = await db.query(
+        `SELECT id, store_id, username, full_name, role, created_at FROM users`
+    );
+    return rows;
+}
+
+module.exports = { getUserByUsername, createUser, getUserById, getAllUsers }
