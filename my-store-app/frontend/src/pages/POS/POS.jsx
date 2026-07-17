@@ -35,7 +35,7 @@ const POS = () => {
         const fetchProducts = async () => {
             try {
                 const response = await axiosClient.get("/products");
-                setProducts(response.data.data);
+                setProducts(response.data || []);
             } catch (error) {
                 console.log(error);
             }
@@ -103,7 +103,21 @@ const POS = () => {
                             html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
                         }
                     }).catch(err => {
-                        console.log("Lỗi khởi tạo camera:", err);
+                        console.log("Lỗi khởi tạo camera sau, thử dùng camera mặc định:", err);
+                        // Fallback cho PC (không có camera sau)
+                        html5QrCode.start(
+                            devices[0].id,
+                            config,
+                            onScanSuccess,
+                            () => { }
+                        ).then(() => {
+                            isVideoPlaying = true;
+                            if (isUnmounted) {
+                                html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
+                            }
+                        }).catch(fallbackErr => {
+                            console.log("Lỗi khởi tạo camera fallback:", fallbackErr);
+                        });
                     });
                 } else {
                     showToast('error', "Không tìm thấy camera trên thiết bị!");

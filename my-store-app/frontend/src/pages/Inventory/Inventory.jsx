@@ -95,15 +95,12 @@ const Inventory = () => {
 
       Html5Qrcode.getCameras().then(devices => {
         if (isUnmounted) return;
+
         if (devices && devices.length) {
           // Ép trình duyệt luôn dùng camera sau (mặt lưng điện thoại)
           html5QrCode.start(
             { facingMode: "environment" },
-            { 
-              fps: 30, 
-              disableFlip: true, 
-              qrbox: 250 
-            },
+            config,
             onScanSuccess,
             () => { } // Bỏ qua lỗi parse
           ).then(() => {
@@ -111,7 +108,21 @@ const Inventory = () => {
             if (isUnmounted) {
               html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
             }
-          }).catch(err => console.log(err));
+          }).catch(err => {
+            console.log("Lỗi khởi tạo camera sau, thử dùng camera mặc định:", err);
+            // Fallback cho PC (không có camera sau)
+            html5QrCode.start(
+              devices[0].id,
+              config,
+              onScanSuccess,
+              () => { }
+            ).then(() => {
+              isVideoPlaying = true;
+              if (isUnmounted) {
+                html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
+              }
+            }).catch(fallbackErr => console.log("Lỗi camera fallback:", fallbackErr));
+          });
         } else {
           alert("Không tìm thấy camera!");
           setIsScanningBarcode(false);

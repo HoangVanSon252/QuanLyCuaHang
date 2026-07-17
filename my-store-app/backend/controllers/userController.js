@@ -30,7 +30,7 @@ const createStoreAdmin = async (req, res) => {
 
         // tạo User mới 
         const newUserId = await userModel.createUser(
-            store_id || null,
+            store_id || 1,
             userName,
             hashedPassword,
             fullName || null,
