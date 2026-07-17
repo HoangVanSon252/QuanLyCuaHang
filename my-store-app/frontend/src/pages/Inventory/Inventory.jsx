@@ -93,6 +93,17 @@ const Inventory = () => {
         setIsScanningBarcode(false); // tự động tắt camera khi quét xong
       };
 
+      const config = {
+        fps: 30, // Tăng fps để nhận diện nhanh nhạy hơn
+        disableFlip: false, // Hỗ trợ quét linh hoạt
+        qrbox: (viewfinderWidth, viewfinderHeight) => {
+          // Responsive qrbox linh hoạt cho cả mobile và máy tính
+          const width = Math.min(300, Math.floor(viewfinderWidth * 0.8));
+          const height = Math.min(200, Math.floor(viewfinderHeight * 0.6));
+          return { width, height };
+        }
+      };
+
       Html5Qrcode.getCameras().then(devices => {
         if (isUnmounted) return;
 
