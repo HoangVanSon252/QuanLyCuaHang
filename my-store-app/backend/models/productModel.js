@@ -11,13 +11,13 @@ const getAllCategories = async (store_id) => {
 }
 
 const createProduct = async (productData) => {
-    const { store_id, category_id, supplier_id, name, barcode, cost_price, sell_price, stock_quantity } = productData;
+    const { store_id, category_id, name, barcode, cost_price, sell_price, stock_quantity } = productData;
 
     const query = `
-    INSERT INTO products (store_id, category_id, supplier_id, name, barcode, cost_price, sell_price, stock_quantity)
-    values (?,?,?,?,?,?,?,?);`
+    INSERT INTO products (store_id, category_id, name, barcode, cost_price, sell_price, stock_quantity)
+    values (?,?,?,?,?,?,?);`
     const [result] = await db.query(query,
-        [store_id, category_id, supplier_id, name, barcode, cost_price, sell_price, stock_quantity]
+        [store_id, category_id, name, barcode, cost_price, sell_price, stock_quantity]
     )
     return result.insertId;
 }
@@ -36,24 +36,25 @@ const deleteProduct = async (store_id, id) => {
 }
 // Cập nhật sản phẩm
 const updateProduct = async (store_id, id, updateData) => {
-    const { name, barcode, cost_price, sell_price, stock_quantity, category_id, supplier_id } = updateData;
+    const { name, barcode, cost_price, sell_price, stock_quantity, category_id } = updateData;
 
     const query = `
         UPDATE products 
-        SET name = ?, barcode = ?, cost_price = ?, sell_price = ?, stock_quantity = ?, category_id = ?, supplier_id = ?
+        SET name = ?, barcode = ?, cost_price = ?, sell_price = ?, stock_quantity = ?, category_id = ?
         WHERE id = ? AND store_id = ?;
     `;
     const [result] = await db.query(query, [
-        name, barcode, cost_price, sell_price, stock_quantity, category_id, supplier_id, id, store_id
+        name, barcode, cost_price, sell_price, stock_quantity, category_id, id, store_id
     ]);
 
     return result.affectedRows > 0;
 }
 
-// Lấy tất cả nhà cung cấp theo store_id
-const getAllSuppliers = async (store_id) => {
-    const [rows] = await db.query("SELECT * FROM suppliers WHERE store_id = ?", [store_id]);
-    return rows;
+// Thêm danh mục mới
+const createCategory = async (store_id, name) => {
+    const query = `INSERT INTO categories (store_id, name) VALUES (?, ?);`;
+    const [result] = await db.query(query, [store_id, name]);
+    return result.insertId;
 }
 
 module.exports = {
@@ -63,5 +64,5 @@ module.exports = {
     deleteProduct,
     getProductByID,
     updateProduct,
-    getAllSuppliers,
+    createCategory
 }

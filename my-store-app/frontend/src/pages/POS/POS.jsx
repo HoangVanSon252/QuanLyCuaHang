@@ -62,7 +62,11 @@ const POS = () => {
 
             html5QrCode = new Html5Qrcode("reader");
 
-            const config = { fps: 10 };
+            const config = { 
+                fps: 30, 
+                disableFlip: true, 
+                qrbox: 250 
+            };
             const onScanSuccess = (decodedText) => {
                 // Xử lý khi quét thành công
                 const product = productsRef.current.find(p => String(p.barcode) === String(decodedText));

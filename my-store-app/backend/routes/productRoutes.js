@@ -7,7 +7,7 @@ const authMiddleware = require('../middleware/authMiddleware'); // BẢO MẬT: 
 router.get('/', authMiddleware, productController.getAllProducts);
 router.post('/', authMiddleware, productController.createProduct);
 router.get('/categories', authMiddleware, productController.getAllCategories);
-router.get('/suppliers', authMiddleware, productController.getAllSuppliers);
+router.post('/categories', authMiddleware, productController.createCategory);
 router.get('/:id', authMiddleware, productController.getProductByID);
 router.put('/:id', authMiddleware, productController.updateProduct);
 router.delete('/:id', authMiddleware, productController.deleteProduct);

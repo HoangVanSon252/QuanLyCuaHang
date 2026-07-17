@@ -47,7 +47,7 @@ const createProduct = async (req, res) => {
     try {
         // kiểm tra quyền chủ của hàng 
         const store_id = req.user.store_id;
-        const { category_id, supplier_id, name, barcode, cost_price, sell_price, stock_quantity } = req.body;
+        const { category_id, name, barcode, cost_price, sell_price, stock_quantity } = req.body;
         if (!name) {
             return res.status(400).json(
                 { message: "Tên sản phẩm bắt buộc phải có" }
@@ -66,18 +66,11 @@ const createProduct = async (req, res) => {
                 { message: "Số lượng tồn kho phải là số và lớn hơn 0" }
             )
         }
-        //kiểm tra danh mục và nhà cung cấp phải là số
+        //kiểm tra danh mục phải là số
         if (category_id !== undefined && category_id !== "" && category_id !== null) {
             if (isNaN(category_id) || Number(category_id) <= 0) {
                 return res.status(400).json(
                     { message: "Danh mục phải là số dương" }
-                )
-            }
-        }
-        if (supplier_id !== undefined && supplier_id !== "" && supplier_id !== null) {
-            if (isNaN(supplier_id) || Number(supplier_id) <= 0) {
-                return res.status(400).json(
-                    { message: "Nhà cung cấp không hợp lệ" }
                 )
             }
         }
@@ -94,7 +87,6 @@ const createProduct = async (req, res) => {
         const newProduct = {
             store_id,
             category_id: category_id || null,
-            supplier_id: supplier_id || null,
             name,
             barcode: barcode || null,
             cost_price: Number(cost_price),
@@ -141,7 +133,7 @@ const updateProduct = async (req, res) => {
     try {
         const store_id = req.user.store_id;
         const { id } = req.params;
-        const { category_id, supplier_id, name, barcode, cost_price, sell_price, stock_quantity } = req.body;
+        const { category_id, name, barcode, cost_price, sell_price, stock_quantity } = req.body;
 
         if (!name) {
             return res.status(400).json({ message: "Tên sản phẩm bắt buộc phải có" });
@@ -159,11 +151,6 @@ const updateProduct = async (req, res) => {
                 return res.status(400).json({ message: "Danh mục không hợp lệ" })
             }
         }
-        if (supplier_id !== undefined && supplier_id !== null && supplier_id !== "") {
-            if (isNaN(supplier_id) || Number(supplier_id) <= 0) {
-                return res.status(400).json({ message: "Nhà cung cấp không hợp lệ" })
-            }
-        }
         if (barcode !== undefined && barcode !== null && barcode !== "") {
             if (isNaN(barcode) || Number(barcode) <= 0) {
                 return res.status(400).json({ message: "Mã vạch không hợp lệ" })
@@ -176,8 +163,7 @@ const updateProduct = async (req, res) => {
             cost_price: Number(cost_price),
             sell_price: Number(sell_price),
             stock_quantity: Number(stock_quantity),
-            category_id: category_id || null,
-            supplier_id: supplier_id || null
+            category_id: category_id || null
         };
 
         const success = await productsModel.updateProduct(store_id, id, updateData);
@@ -219,19 +205,25 @@ const deleteProduct = async (req, res) => {
     }
 }
 
-const getAllSuppliers = async (req, res) => {
+const createCategory = async (req, res) => {
     try {
         const store_id = req.user.store_id;
-        const supplierList = await productsModel.getAllSuppliers(store_id);
+        const { name } = req.body;
 
-        return res.status(200).json({
-            message: "Lấy danh sách nhà cung cấp thành công!",
-            data: supplierList
+        if (!name) {
+            return res.status(400).json({ message: "Tên danh mục bắt buộc phải có" });
+        }
+
+        const categoryId = await productsModel.createCategory(store_id, name);
+
+        return res.status(201).json({
+            message: "Tạo danh mục thành công!",
+            data: { id: categoryId, name, store_id }
         });
     } catch (error) {
-        console.error("Error fetching all suppliers:", error);
+        console.error("Error creating category:", error);
         return res.status(500).json({
-            message: "Lỗi server khi lấy danh sách nhà cung cấp!",
+            message: "Lỗi server khi tạo danh mục!",
             error: error.message
         });
     }
@@ -244,5 +236,5 @@ module.exports = {
     getProductByID,
     updateProduct,
     deleteProduct,
-    getAllSuppliers,
+    createCategory
 }

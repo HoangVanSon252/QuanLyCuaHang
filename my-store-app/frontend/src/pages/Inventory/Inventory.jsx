@@ -28,7 +28,6 @@ const Inventory = () => {
   // --- Utilities ---
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -61,14 +60,18 @@ const Inventory = () => {
     cost_price: "",
     sell_price: "",
     stock_quantity: "",
-    category_id: "",
-    supplier_id: ""
+    category_id: ""
   });
   const [formError, setFormError] = useState("");
 
   // Delete confirm state
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState(null);
+
+  // Category Modal State
+  const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [categoryFormError, setCategoryFormError] = useState("");
 
   // Camera scanner state cho Modal thêm mới/sửa
   const [isScanningBarcode, setIsScanningBarcode] = useState(false);
@@ -96,7 +99,11 @@ const Inventory = () => {
           // Ép trình duyệt luôn dùng camera sau (mặt lưng điện thoại)
           html5QrCode.start(
             { facingMode: "environment" },
-            { fps: 10 },
+            { 
+              fps: 30, 
+              disableFlip: true, 
+              qrbox: 250 
+            },
             onScanSuccess,
             () => { } // Bỏ qua lỗi parse
           ).then(() => {
@@ -130,15 +137,13 @@ const Inventory = () => {
       setLoading(true);
       setErrorMsg("");
 
-      const [prodsRes, catsRes, supsRes] = await Promise.all([
+      const [prodsRes, catsRes] = await Promise.all([
         productApi.getProducts(),
-        productApi.getCategories(),
-        productApi.getSuppliers()
+        productApi.getCategories()
       ]);
 
       setProducts(prodsRes.data || []);
       setCategories(catsRes.data || []);
-      setSuppliers(supsRes.data || []);
     } catch (err) {
       console.error("Error loading inventory data:", err);
       setErrorMsg("Không thể kết nối đến server hoặc phiên đăng nhập hết hạn.");
@@ -203,8 +208,7 @@ const Inventory = () => {
       cost_price: "",
       sell_price: "",
       stock_quantity: "",
-      category_id: categories[0]?.id || "",
-      supplier_id: suppliers[0]?.id || ""
+      category_id: categories[0]?.id || ""
     });
     setFormError("");
     setIsModalOpen(true);
@@ -220,8 +224,7 @@ const Inventory = () => {
       cost_price: product.cost_price,
       sell_price: product.sell_price,
       stock_quantity: product.stock_quantity,
-      category_id: product.category_id || "",
-      supplier_id: product.supplier_id || ""
+      category_id: product.category_id || ""
     });
     setFormError("");
     setIsModalOpen(true);
@@ -260,8 +263,7 @@ const Inventory = () => {
           cost_price: Number(formData.cost_price),
           sell_price: Number(formData.sell_price),
           stock_quantity: Number(formData.stock_quantity),
-          category_id: formData.category_id ? Number(formData.category_id) : null,
-          supplier_id: formData.supplier_id ? Number(formData.supplier_id) : null
+          category_id: formData.category_id ? Number(formData.category_id) : null
         });
       } else {
         await productApi.updateProduct(selectedProduct.id, {
@@ -269,8 +271,7 @@ const Inventory = () => {
           cost_price: Number(formData.cost_price),
           sell_price: Number(formData.sell_price),
           stock_quantity: Number(formData.stock_quantity),
-          category_id: formData.category_id ? Number(formData.category_id) : null,
-          supplier_id: formData.supplier_id ? Number(formData.supplier_id) : null
+          category_id: formData.category_id ? Number(formData.category_id) : null
         });
       }
       setIsModalOpen(false);
@@ -279,6 +280,26 @@ const Inventory = () => {
     } catch (err) {
       console.error("Error submitting form:", err);
       setFormError(err.response?.data?.message || "Đã xảy ra lỗi khi lưu sản phẩm.");
+    }
+  };
+
+  // --- Category Handlers ---
+  const handleAddCategory = async (e) => {
+    e.preventDefault();
+    setCategoryFormError("");
+    if (!newCategoryName.trim()) {
+      setCategoryFormError("Vui lòng nhập tên danh mục!");
+      return;
+    }
+    try {
+      const res = await productApi.createCategory({ name: newCategoryName });
+      setCategories(prev => [...prev, res.data]);
+      setFormData(prev => ({ ...prev, category_id: res.data.id }));
+      setIsCategoryModalOpen(false);
+      setNewCategoryName("");
+    } catch (err) {
+      console.error("Error creating category:", err);
+      setCategoryFormError(err.response?.data?.message || "Đã xảy ra lỗi khi tạo danh mục.");
     }
   };
 
@@ -801,36 +822,29 @@ const Inventory = () => {
                   </div>
                 </div>
 
-                {/* Danh mục & Nhà cung cấp */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Danh mục sản phẩm</label>
-                    <select
-                      name="category_id"
-                      value={formData.category_id}
-                      onChange={handleFormChange}
-                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                {/* Danh mục */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Danh mục sản phẩm</label>
+                    <button 
+                      type="button" 
+                      onClick={() => setIsCategoryModalOpen(true)}
+                      className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors"
                     >
-                      <option value="">Chọn danh mục...</option>
-                      {categories.map(cat => (
-                        <option key={cat.id} value={cat.id}>{cat.name}</option>
-                      ))}
-                    </select>
+                      + Thêm danh mục mới
+                    </button>
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Nhà cung cấp</label>
-                    <select
-                      name="supplier_id"
-                      value={formData.supplier_id}
-                      onChange={handleFormChange}
-                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
-                    >
-                      <option value="">Chọn nhà cung cấp...</option>
-                      {suppliers.map(sup => (
-                        <option key={sup.id} value={sup.id}>{sup.name}</option>
-                      ))}
-                    </select>
-                  </div>
+                  <select
+                    name="category_id"
+                    value={formData.category_id}
+                    onChange={handleFormChange}
+                    className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                  >
+                    <option value="">Chọn danh mục...</option>
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -848,6 +862,58 @@ const Inventory = () => {
                   className="px-5 py-2.5 bg-gradient-to-r from-[#9D2753] to-[#ef6292] text-white font-bold rounded-xl text-sm hover:opacity-95 transition-opacity"
                 >
                   Lưu sản phẩm
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- ADD CATEGORY MODAL --- */}
+      {isCategoryModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="bg-gradient-to-r from-[#9D2753] to-[#ef6292] p-4 text-white flex justify-between items-center">
+              <h2 className="text-base font-bold">Thêm danh mục mới</h2>
+              <button
+                onClick={() => setIsCategoryModalOpen(false)}
+                className="text-white/80 hover:text-white hover:bg-white/10 p-1 rounded-lg transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <form onSubmit={handleAddCategory}>
+              <div className="p-5 space-y-4">
+                {categoryFormError && (
+                  <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl">
+                    {categoryFormError}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Tên danh mục *</label>
+                  <input
+                    type="text"
+                    required
+                    value={newCategoryName}
+                    onChange={(e) => setNewCategoryName(e.target.value)}
+                    placeholder="VD: Đồ ăn vặt"
+                    className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                  />
+                </div>
+              </div>
+              <div className="p-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsCategoryModalOpen(false)}
+                  className="px-4 py-2 bg-white border border-gray-200 text-gray-700 font-semibold rounded-xl text-sm hover:bg-gray-100"
+                >
+                  Hủy
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-gradient-to-r from-[#9D2753] to-[#ef6292] text-white font-bold rounded-xl text-sm hover:opacity-95"
+                >
+                  Lưu
                 </button>
               </div>
             </form>

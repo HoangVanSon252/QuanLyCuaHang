@@ -37,9 +37,9 @@ export const productApi = {
     return response.data;
   },
 
-  // Lấy danh sách nhà cung cấp
-  getSuppliers: async () => {
-    const response = await axiosClient.get('/products/suppliers');
+  // Thêm danh mục mới
+  createCategory: async (categoryData) => {
+    const response = await axiosClient.post('/products/categories', categoryData);
     return response.data;
   }
 };
