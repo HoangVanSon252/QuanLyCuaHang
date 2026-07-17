@@ -35,7 +35,8 @@ const POS = () => {
         const fetchProducts = async () => {
             try {
                 const response = await axiosClient.get("/products");
-                setProducts(response.data || []);
+                const payload = response.data;
+                setProducts(payload.data || (Array.isArray(payload) ? payload : []));
             } catch (error) {
                 console.log(error);
             }
