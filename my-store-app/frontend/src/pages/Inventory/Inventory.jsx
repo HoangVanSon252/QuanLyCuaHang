@@ -93,14 +93,9 @@ const Inventory = () => {
       Html5Qrcode.getCameras().then(devices => {
         if (isUnmounted) return;
         if (devices && devices.length) {
-          let cameraId = devices[0].id;
-          const backCamera = devices.find(device => device.label.toLowerCase().includes('back') || device.label.toLowerCase().includes('environment'));
-          if (backCamera) {
-            cameraId = backCamera.id;
-          }
-
+          // Ép trình duyệt luôn dùng camera sau (mặt lưng điện thoại)
           html5QrCode.start(
-            cameraId,
+            { facingMode: "environment" },
             { fps: 10 },
             onScanSuccess,
             () => { } // Bỏ qua lỗi parse
