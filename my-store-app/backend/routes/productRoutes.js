@@ -1,15 +1,17 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const productController = require('../controllers/productController');
-const authMiddleware = require('../middleware/authMiddleware'); // BẢO MẬT: Nhúng Bác bảo vệ
+const productController = require("../controllers/productController");
+const { authMiddleware, requireRole, requireStore } = require("../middleware/authMiddleware");
 
-// BẢO MẬT: Mọi request phải đi qua authMiddleware để kiểm tra Token
-router.get('/', authMiddleware, productController.getAllProducts);
-router.post('/', authMiddleware, productController.createProduct);
-router.get('/categories', authMiddleware, productController.getAllCategories);
-router.post('/categories', authMiddleware, productController.createCategory);
-router.get('/:id', authMiddleware, productController.getProductByID);
-router.put('/:id', authMiddleware, productController.updateProduct);
-router.delete('/:id', authMiddleware, productController.deleteProduct);
+// Chỉ tài khoản cửa hàng; mọi truy vấn đều lọc theo cửa hàng của tài khoản đó
+router.use(authMiddleware, requireRole("store_admin"), requireStore);
+
+router.get("/", productController.getAllProducts);
+router.post("/", productController.createProduct);
+router.get("/categories", productController.getAllCategories);
+router.post("/categories", productController.createCategory);
+router.get("/:id", productController.getProductByID);
+router.put("/:id", productController.updateProduct);
+router.delete("/:id", productController.deleteProduct);
 
 module.exports = router;

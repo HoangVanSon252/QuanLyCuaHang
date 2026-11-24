@@ -9,6 +9,11 @@ lerna-debug.log*
 
 node_modules
 dist
+
+# Biến môi trường (chỉ commit .env.example)
+.env
+.env.*
+!.env.example
 dist-ssr
 *.local
 

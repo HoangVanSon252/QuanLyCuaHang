@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Header from "../../components/Navbar";
-import axiosClient from '../../services/axiosClient';
+import axiosClient, { errorMessage } from '../../services/axiosClient';
+import { buildLast7Days, formatCompact } from '../../utils/format';
 import { 
   Banknote, 
   Package, 
@@ -20,6 +21,7 @@ const Dashboard = () => {
   const [weeklyRevenue, setWeeklyRevenue] = useState([]);
   const [recentActivity, setRecentActivity] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -36,27 +38,10 @@ const Dashboard = () => {
         setOverview(overviewRes.data.data);
         setLowStock(lowStockRes.data.data);
         
-        // Format dữ liệu weekly revenue cho recharts
-        // Cần map date (2024-05-20T00:00:00.000Z) thành Thứ mấy / Ngày mấy
-        const formattedWeekly = weeklyRes.data.data.map(item => {
-          const d = new Date(item.date);
-          const days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-          return {
-            name: days[d.getDay()],
-            revenue: Number(item.revenue),
-            fullDate: d.toLocaleDateString('vi-VN')
-          };
-        });
-        
-        // Nếu API trả về mảng rỗng (không có doanh thu tuần này), tạo dữ liệu rỗng
-        setWeeklyRevenue(formattedWeekly.length > 0 ? formattedWeekly : [
-          { name: 'T2', revenue: 0 }, { name: 'T3', revenue: 0 }, { name: 'T4', revenue: 0 },
-          { name: 'T5', revenue: 0 }, { name: 'T6', revenue: 0 }, { name: 'T7', revenue: 0 }, { name: 'CN', revenue: 0 }
-        ]);
-
+        setWeeklyRevenue(buildLast7Days(weeklyRes.data.data));
         setRecentActivity(activityRes.data.data);
       } catch (error) {
-        console.error("Lỗi khi tải dữ liệu Dashboard:", error);
+        setLoadError(errorMessage(error, 'Không tải được dữ liệu bảng điều khiển.'));
       } finally {
         setLoading(false);
       }
@@ -79,7 +64,10 @@ const Dashboard = () => {
         <Header />
         
         <div className="p-6 max-w-7xl mx-auto">
-          
+          {loadError && (
+            <div role="alert" className="mb-6 p-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl">{loadError}</div>
+          )}
+
           {/* Top Section */}
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             
@@ -87,9 +75,9 @@ const Dashboard = () => {
             <div className="space-y-6">
               {/* Tổng Doanh Thu */}
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden transition hover:shadow-md">
-                <div className="absolute -top-10 -right-10 w-32 h-32 bg-pink-50 rounded-full opacity-50 pointer-events-none"></div>
+                <div className="absolute -top-10 -right-10 w-32 h-32 bg-brand-50 rounded-full opacity-50 pointer-events-none"></div>
                 <div className="flex justify-between items-start mb-4">
-                  <div className="p-2 bg-pink-100 text-pink-600 rounded-lg">
+                  <div className="p-2 bg-brand-100 text-brand-600 rounded-lg">
                     <Banknote size={24} />
                   </div>
                 </div>
@@ -112,6 +100,12 @@ const Dashboard = () => {
                 <div className="text-2xl font-bold text-gray-800">
                   {loading ? '...' : `${overview.total_orders} Đơn`}
                 </div>
+                {!loading && (
+                  <div className="mt-2 text-xs text-gray-400">
+                    Hôm nay: <span className="font-semibold text-gray-600">{overview.today_orders || 0} đơn</span> •{' '}
+                    <span className="font-semibold text-green-600">{formatCurrency(overview.today_revenue)}</span>
+                  </div>
+                )}
               </div>
 
               {/* Cảnh Báo Tồn Kho */}
@@ -176,7 +170,7 @@ const Dashboard = () => {
                           axisLine={false} 
                           tickLine={false} 
                           tick={{ fill: '#94a3b8', fontSize: 12 }}
-                          tickFormatter={(value) => value === 0 ? '0' : `${(value / 1000000).toFixed(1)}M`}
+                          tickFormatter={formatCompact}
                         />
                         <Tooltip 
                           cursor={{ fill: '#f8fafc' }}
@@ -191,7 +185,7 @@ const Dashboard = () => {
                         />
                         <Bar 
                           dataKey="revenue" 
-                          fill="#be123c" 
+                          fill="#1D74E0" 
                           radius={[6, 6, 0, 0]} 
                           barSize={40}
                           animationDuration={1500}
@@ -238,7 +232,7 @@ const Dashboard = () => {
                       <tr key={`${activity.type}-${activity.id}-${index}`} className="border-b border-gray-50 hover:bg-slate-50 transition-colors">
                         <td className="py-4 px-4 flex items-center space-x-3">
                           {activity.type === 'order' ? (
-                            <div className="p-2.5 bg-pink-50 text-pink-500 rounded-lg">
+                            <div className="p-2.5 bg-brand-50 text-brand-500 rounded-lg">
                               <ShoppingCart size={18} />
                             </div>
                           ) : (
@@ -251,7 +245,7 @@ const Dashboard = () => {
                           </span>
                         </td>
                         <td className="py-4 px-4 text-center text-gray-500 font-medium">
-                          #{activity.id}
+                          {activity.code || `#${activity.id}`}
                         </td>
                         <td className="py-4 px-4 text-center">
                           {activity.type === 'order' ? (

@@ -1,16 +1,19 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const userController = require('../controllers/userController');
-const authMiddleware = require('../middleware/authMiddleware'); // Import middleware bảo vệ
+const userController = require("../controllers/userController");
+const { authMiddleware } = require("../middleware/authMiddleware");
+const { loginLimiter, refreshLimiter } = require("../middleware/rateLimit");
 
-// [POST] /api/users/create-store-admin - Super Admin tạo tài khoản Chủ cửa hàng (Bảo mật: Phải có Token của Super Admin)
-router.post('/create-store-admin', authMiddleware, userController.createStoreAdmin);
+// ---------- Công khai (có giới hạn tốc độ) ----------
+router.post("/login", loginLimiter, userController.loginUser);
+router.post("/refresh-token", refreshLimiter, userController.refreshToken);
+router.post("/logout", userController.logoutUser);
 
-// [GET] /api/users - Lấy danh sách tài khoản (Chỉ Super Admin)
-router.get('/', authMiddleware, userController.getAllUsers);
+// ---------- Tài khoản đang đăng nhập (admin hoặc cửa hàng) ----------
+router.use(authMiddleware);
+router.get("/me", userController.getMe);
+router.post("/change-password", userController.changePassword);
 
-router.post('/login', userController.loginUser);
-
-router.post('/refresh-token', userController.refreshToken);
+// Quản lý cửa hàng & tài khoản: xem routes/adminRoutes.js (/api/admin, chỉ admin hệ thống)
 
 module.exports = router;

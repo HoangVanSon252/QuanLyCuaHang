@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from "react";
 import Header from "../../components/Navbar";
 import { useNavigate } from "react-router-dom";
-import axiosClient from "../../services/axiosClient";
+import axiosClient, { errorMessage } from "../../services/axiosClient";
+import { buildLast7Days } from "../../utils/format";
 import {
   TrendingUp,
   FileText
 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  BarChart, Bar, XAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
 
 const Report = () => {
   const navigate = useNavigate();
@@ -20,6 +19,7 @@ const Report = () => {
   const [weeklyRevenue, setWeeklyRevenue] = useState([]);
   const [monthlyRevenue, setMonthlyRevenue] = useState([]);
   const [chartType, setChartType] = useState('TUẦN'); // 'TUẦN' hoặc 'THÁNG'
+  const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
     const fetchReportData = async () => {
@@ -35,20 +35,7 @@ const Report = () => {
         setOverview(overviewRes.data.data);
         setTopProducts(topProdRes.data.data);
 
-        // Format weekly data
-        const formattedWeekly = weeklyRes.data.data.map(item => {
-          const d = new Date(item.date);
-          const days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-          return {
-            name: days[d.getDay()],
-            revenue: Number(item.revenue),
-            fullDate: d.toLocaleDateString('vi-VN')
-          };
-        });
-        setWeeklyRevenue(formattedWeekly.length > 0 ? formattedWeekly : [
-          { name: 'T2', revenue: 0 }, { name: 'T3', revenue: 0 }, { name: 'T4', revenue: 0 },
-          { name: 'T5', revenue: 0 }, { name: 'T6', revenue: 0 }, { name: 'T7', revenue: 0 }, { name: 'CN', revenue: 0 }
-        ]);
+        setWeeklyRevenue(buildLast7Days(weeklyRes.data.data));
 
         // Format monthly data
         const formattedMonthly = monthlyRes.data.data.map(item => {
@@ -66,7 +53,7 @@ const Report = () => {
         setMonthlyRevenue(fullMonths);
 
       } catch (error) {
-        console.error("Lỗi khi tải dữ liệu Report:", error);
+        setLoadError(errorMessage(error, 'Không tải được dữ liệu báo cáo.'));
       } finally {
         setLoading(false);
       }
@@ -74,9 +61,15 @@ const Report = () => {
     fetchReportData();
   }, []);
 
-  const handleDownloadPDF = () => {
+  const handleDownloadPDF = async () => {
     const reportElement = document.getElementById("report-content");
     if (!reportElement) return;
+
+    // Chỉ tải thư viện xuất PDF (khá nặng) khi người dùng thực sự bấm nút
+    const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+      import('html2canvas'),
+      import('jspdf'),
+    ]);
 
     html2canvas(reportElement, { scale: 2 }).then((canvas) => {
       const imgData = canvas.toDataURL("image/png");
@@ -107,7 +100,7 @@ const Report = () => {
       { bg: 'bg-sky-50', text: 'text-sky-700', badge: 'bg-sky-500' },
       { bg: 'bg-orange-50', text: 'text-orange-700', badge: 'bg-orange-500' },
       { bg: 'bg-purple-50', text: 'text-purple-700', badge: 'bg-purple-500' },
-      { bg: 'bg-pink-50', text: 'text-pink-700', badge: 'bg-pink-500' },
+      { bg: 'bg-brand-50', text: 'text-brand-700', badge: 'bg-brand-500' },
     ];
     return colors[index % colors.length];
   };
@@ -119,6 +112,9 @@ const Report = () => {
       <Header />
 
       <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
+        {loadError && (
+          <div role="alert" className="mb-6 p-4 text-sm text-red-600 bg-red-50 border border-red-100 rounded-xl">{loadError}</div>
+        )}
 
         {/* Header */}
         <div className="mb-6">
@@ -130,9 +126,9 @@ const Report = () => {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 mb-6">
 
           {/* Tổng doanh thu */}
-          <div className="col-span-2 md:col-span-4 xl:col-span-2 bg-gradient-to-br from-rose-500 to-pink-500 rounded-3xl p-5 md:p-6 text-white shadow-lg shadow-pink-500/20 relative overflow-hidden">
+          <div className="col-span-2 md:col-span-4 xl:col-span-2 bg-gradient-to-br from-brand-500 to-brand-500 rounded-3xl p-5 md:p-6 text-white shadow-lg shadow-brand-500/20 relative overflow-hidden">
             <div className="absolute -right-8 -top-8 w-40 h-40 bg-white opacity-10 rounded-full mix-blend-overlay"></div>
-            <p className="text-rose-100 text-xs font-bold uppercase tracking-wide mb-2 opacity-90">TỔNG DOANH THU ĐÃ BÁN</p>
+            <p className="text-brand-100 text-xs font-bold uppercase tracking-wide mb-2 opacity-90">TỔNG DOANH THU ĐÃ BÁN</p>
             <h3 className="text-3xl lg:text-4xl xl:text-5xl font-black tracking-tight mb-4 truncate block w-full whitespace-nowrap">
               {loading ? '...' : formatCurrency(overview.total_revenue)}
             </h3>
@@ -155,7 +151,7 @@ const Report = () => {
             <p className="text-gray-400 text-[11px] font-bold uppercase tracking-wider mb-2">SẢN PHẨM TRONG KHO</p>
             <div className="flex justify-between items-end">
               <h3 className="text-2xl font-black text-gray-800">Ổn định</h3>
-              <span className="text-pink-600 text-xs font-black" onClick={() => navigate('/inventory')} style={{ cursor: 'pointer' }}>Xem kho &rarr;</span>
+              <span className="text-brand-600 text-xs font-black" onClick={() => navigate('/inventory')} style={{ cursor: 'pointer' }}>Xem kho &rarr;</span>
             </div>
           </div>
 
@@ -212,7 +208,7 @@ const Report = () => {
                     />
                     <Bar
                       dataKey="revenue"
-                      fill="#ff6b9e"
+                      fill="#1D74E0"
                       radius={[6, 6, 0, 0]}
                       barSize={chartType === 'TUẦN' ? 40 : 25}
                       animationDuration={1000}
@@ -227,7 +223,7 @@ const Report = () => {
           <div className="w-full xl:w-[400px] shrink-0 bg-white p-5 md:p-6 rounded-3xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-base md:text-lg font-bold text-gray-800">Top 5 sản phẩm mẹ & bé</h2>
-              <button onClick={() => navigate('/inventory')} className="text-rose-600 text-xs font-bold hover:underline cursor-pointer bg-transparent border-none">
+              <button onClick={() => navigate('/inventory')} className="text-brand-600 text-xs font-bold hover:underline cursor-pointer bg-transparent border-none">
                 Xem tất cả
               </button>
             </div>
@@ -260,7 +256,7 @@ const Report = () => {
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <p className="text-sm font-black text-rose-700 pb-1">
+                        <p className="text-sm font-black text-brand-700 pb-1">
                           {/* Rút gọn doanh thu nếu quá lớn (ví dụ: 12.5tr) */}
                           {product.total_revenue > 1000000
                             ? `${(product.total_revenue / 1000000).toFixed(1)}tr`

@@ -23,7 +23,14 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^[A-Z_]' }],
+      // Không để lại console.log trong mã production (vẫn cho phép warn/error khi cần)
+      'no-console': ['error', { allow: ['warn', 'error'] }],
     },
+  },
+  {
+    // File cấu hình chạy trên Node.js
+    files: ['vite.config.js', 'tailwind.config.js', 'postcss.config.js', 'eslint.config.js'],
+    languageOptions: { globals: globals.node },
   },
 ])

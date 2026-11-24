@@ -1,28 +1,35 @@
 const mysql = require("mysql2");
-require("dotenv").config();
+const config = require("./env");
 
-const db = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'quanlycuahang',
-  port: process.env.DB_PORT || 3306,
+const pool = mysql.createPool({
+  host: config.db.host,
+  user: config.db.user,
+  password: config.db.password,
+  database: config.db.database,
+  port: config.db.port,
+  ssl: config.db.ssl,
   waitForConnections: true,
-  connectionLimit: 10,
+  connectionLimit: config.db.connectionLimit,
   queueLimit: 0,
   enableKeepAlive: true,
-  keepAliveInitialDelay: 0,
+  keepAliveInitialDelay: 10000,
+  connectTimeout: 10000,
+  timezone: "+07:00",
+  dateStrings: false,
+  charset: "utf8mb4",
 });
-const promisePool = db.promise();
 
-// Chạy thử kết nối
-promisePool.getConnection()
-  .then((connection) => {
-    console.log("✅ Kết nối MySQL đã thông thành công!");
-    connection.release();
-  })
-  .catch((err) => {
-    console.error("❌ Kết nối thất bại!", err);
-  });
+// Mỗi connection mới dùng múi giờ Việt Nam để các hàm DATE()/CURDATE() đúng ngày
+pool.on("connection", (conn) => {
+  conn.query("SET time_zone = '+07:00'");
+});
+
+const promisePool = pool.promise();
+
+// Kiểm tra DB còn sống (dùng cho /api/health)
+promisePool.ping = async () => {
+  const [rows] = await promisePool.query("SELECT 1 AS ok");
+  return rows[0].ok === 1;
+};
 
 module.exports = promisePool;

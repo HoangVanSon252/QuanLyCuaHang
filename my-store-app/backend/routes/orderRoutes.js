@@ -1,10 +1,14 @@
-const express = require('express');
+const express = require("express");
 const route = express.Router();
-const authMiddleware = require('../middleware/authMiddleware');
-const { createOrder, getAllOrders, getOrderById } = require('../controllers/orderController');
+const { authMiddleware, requireRole, requireStore } = require("../middleware/authMiddleware");
+const { createOrder, getAllOrders, getOrderById, cancelOrder } = require("../controllers/orderController");
 
-route.post('/create', authMiddleware, createOrder);
-route.get('/', authMiddleware, getAllOrders);
-route.get('/:id', authMiddleware, getOrderById);
+// Chỉ tài khoản cửa hàng
+route.use(authMiddleware, requireRole("store_admin"), requireStore);
+
+route.post("/create", createOrder);
+route.get("/", getAllOrders);
+route.get("/:id", getOrderById);
+route.post("/:id/cancel", cancelOrder);
 
 module.exports = route;

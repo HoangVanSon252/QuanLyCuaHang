@@ -19,7 +19,7 @@ const MainLayout = () => {
       <main className="flex-1 min-w-0 flex flex-col h-screen overflow-y-auto pb-24 md:pb-0 ">
 
         {/* Nút Float (+) trên Mobile. Lên Desktop thì ẩn đi (md:hidden)
-        <button className="absolute md:bottom-10 bottom-28  md:right-10 right-5  w-14 h-14 bg-[#e83d73] text-white rounded-full flex items-center justify-center text-3xl shadow-lg z-40">
+        <button className="absolute md:bottom-10 bottom-28  md:right-10 right-5  w-14 h-14 bg-brand-600 text-white rounded-full flex items-center justify-center text-3xl shadow-lg z-40">
           +
         </button> */}
         <div className="p-4 md:p-8">

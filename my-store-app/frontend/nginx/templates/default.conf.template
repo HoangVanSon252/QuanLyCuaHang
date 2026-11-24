@@ -1,0 +1,88 @@
+# Nginx: phục vụ React SPA + chuyển tiếp /api tới backend (có thể chạy nhiều bản sao)
+
+# Giới hạn tốc độ theo IP (lớp bảo vệ thứ 2, backend còn một lớp nữa)
+# (Giá trị lấy từ biến môi trường NGINX_API_RATE / NGINX_LOGIN_RATE khi container khởi động)
+limit_req_zone $binary_remote_addr zone=api_zone:10m rate=${NGINX_API_RATE};
+# Nhiều thu ngân dùng chung một mạng (cùng IP) → mặc định 30 lần/phút; backend còn khoá theo từng tài khoản
+limit_req_zone $binary_remote_addr zone=login_zone:10m rate=${NGINX_LOGIN_RATE};
+limit_req_status 429;
+
+# Giữ giao thức gốc (https) khi có Caddy phía trước, nếu không thì dùng scheme hiện tại
+map $http_x_forwarded_proto $fwd_proto {
+    default $http_x_forwarded_proto;
+    ""      $scheme;
+}
+
+# Lấy IP thật của người dùng khi có Caddy (HTTPS) đứng trước.
+# Caddy luôn ghi đè X-Forwarded-For bằng IP thật của client nên không bị giả mạo.
+set_real_ip_from 10.0.0.0/8;
+set_real_ip_from 172.16.0.0/12;
+set_real_ip_from 192.168.0.0/16;
+real_ip_header X-Forwarded-For;
+real_ip_recursive on;
+
+server {
+    listen 8080;
+    server_name _;
+    server_tokens off;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    client_max_body_size 1m;
+
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+
+    # DNS nội bộ Docker: phát hiện bản sao backend mới mỗi 10 giây
+    resolver 127.0.0.11 valid=10s ipv6=off;
+
+    # ---------- Header bảo mật ----------
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()" always;
+    add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob: mediastream:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok";
+    }
+
+    # ---------- API ----------
+    location = /api/users/login {
+        limit_req zone=login_zone burst=20 nodelay;
+        set $api_upstream http://backend:8080;
+        proxy_pass $api_upstream;
+        include /etc/nginx/snippets/proxy_params.inc;
+    }
+
+    location /api/ {
+        limit_req zone=api_zone burst=${NGINX_API_BURST} nodelay;
+        set $api_upstream http://backend:8080;
+        proxy_pass $api_upstream;
+        include /etc/nginx/snippets/proxy_params.inc;
+    }
+
+    # ---------- File tĩnh (đã có hash trong tên → cache lâu dài) ----------
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+        add_header X-Content-Type-Options "nosniff" always;
+        try_files $uri =404;
+    }
+
+    # ---------- SPA: mọi đường dẫn khác trả về index.html (không cache) ----------
+    location / {
+        add_header Cache-Control "no-cache";
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "DENY" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(self), microphone=(), geolocation=(), payment=()" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob: mediastream:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" always;
+        try_files $uri $uri/ /index.html;
+    }
+}
