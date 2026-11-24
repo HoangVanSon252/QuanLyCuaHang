@@ -6,14 +6,13 @@ import { formatCurrency, PAYMENT_LABELS } from '../../utils/format';
 import {
     Trash2,
     Camera,
-    Maximize2,
     Search,
     X,
     ShoppingCart,
     CheckCircle,
     AlertCircle
 } from "lucide-react";
-import { Html5Qrcode } from "html5-qrcode";
+import BarcodeScanner from "../../components/BarcodeScanner";
 
 const POS = () => {
     const [products, setProducts] = React.useState([]);
@@ -82,102 +81,12 @@ const POS = () => {
         productsRef.current = products;
     }, [products]);
 
-    // --- KHỞI TẠO CAMERA SCANNER ---
-    React.useEffect(() => {
-        let isUnmounted = false;
-        let html5QrCode = null;
-        let isVideoPlaying = false;
-
-        if (showCamera) {
-            // Xóa sạch các thẻ còn sót lại do React StrictMode render 2 lần
-            const readerEl = document.getElementById("reader");
-            if (readerEl) readerEl.innerHTML = "";
-
-            html5QrCode = new Html5Qrcode("reader");
-
-            const config = { 
-                fps: 30, // Tăng fps để nhận diện nhanh nhạy hơn
-                disableFlip: false, // Hỗ trợ quét linh hoạt
-                qrbox: (viewfinderWidth, viewfinderHeight) => {
-                    // Responsive qrbox linh hoạt cho cả mobile và máy tính
-                    const width = Math.min(300, Math.floor(viewfinderWidth * 0.8));
-                    const height = Math.min(200, Math.floor(viewfinderHeight * 0.6));
-                    return { width, height };
-                }
-            };
-            // Camera quét 30 khung hình/giây → bỏ qua cùng một mã trong 1,5 giây để không cộng trùng
-            let lastCode = null;
-            let lastAt = 0;
-            const onScanSuccess = (decodedText) => {
-                const now = Date.now();
-                if (decodedText === lastCode && now - lastAt < 1500) return;
-                lastCode = decodedText;
-                lastAt = now;
-
-                const product = productsRef.current.find(p => String(p.barcode) === String(decodedText));
-                if (product) {
-                    addProductRef.current(product);
-                } else {
-                    showToast('error', "Không tìm thấy sản phẩm có mã vạch: " + decodedText);
-                }
-            };
-
-            Html5Qrcode.getCameras().then(devices => {
-                if (isUnmounted) return;
-
-                if (devices && devices.length) {
-                    // Ép trình duyệt luôn dùng camera sau (mặt lưng điện thoại)
-                    html5QrCode.start(
-                        { facingMode: "environment" },
-                        config,
-                        onScanSuccess,
-                        () => { } // Bỏ qua lỗi parse
-                    ).then(() => {
-                        isVideoPlaying = true;
-                        // Nếu component đã bị tắt trong lúc camera đang khởi động, ta tắt ngay lập tức
-                        if (isUnmounted) {
-                            html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-                        }
-                    }).catch(() => {
-                        // Fallback cho PC (không có camera sau)
-                        html5QrCode.start(
-                            devices[0].id,
-                            config,
-                            onScanSuccess,
-                            () => { }
-                        ).then(() => {
-                            isVideoPlaying = true;
-                            if (isUnmounted) {
-                                html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-                            }
-                        }).catch(() => {
-                            showToast('error', "Không mở được camera. Hãy cấp quyền camera cho trang web.");
-                            setShowCamera(false);
-                        });
-                    });
-                } else {
-                    showToast('error', "Không tìm thấy camera trên thiết bị!");
-                    setShowCamera(false);
-                }
-            }).catch(() => {
-                showToast('error', "Trình duyệt chưa được cấp quyền camera (cần HTTPS hoặc localhost).");
-                setShowCamera(false);
-            });
-        }
-
-        return () => {
-            isUnmounted = true;
-            if (html5QrCode) {
-                if (isVideoPlaying) {
-                    html5QrCode.stop().then(() => {
-                        html5QrCode.clear();
-                    }).catch(() => { });
-                } else {
-                    try { html5QrCode.clear(); } catch { /* đã dọn */ }
-                }
-            }
-        };
-    }, [showCamera]);
+    // --- QUÉT MÃ VẠCH BẰNG CAMERA ---
+    const handleScanned = (code) => {
+        const product = productsRef.current.find(p => String(p.barcode) === String(code));
+        if (product) addProductRef.current(product);
+        else showToast('error', 'Không tìm thấy sản phẩm có mã vạch: ' + code);
+    };
 
     // --- HÀM THANH TOÁN ---
     // Chỉ gửi mã sản phẩm + số lượng. Giá và tổng tiền do server tính từ dữ liệu gốc.
@@ -248,7 +157,7 @@ const POS = () => {
             <div className="flex-1 flex flex-col md:flex-row p-0 md:p-6 md:gap-6 max-w-[1600px] w-full mx-auto relative h-[calc(100vh-60px)]">
 
                 {/* ================= CỘT TRÁI (TÌM KIẾM + CAMERA) ================= */}
-                <div className="relative w-full h-[50vh] md:h-full md:flex-1 md:rounded-3xl flex flex-col bg-white overflow-hidden shadow-inner border border-gray-100">
+                <div className="relative w-full h-[50vh] md:h-auto md:flex-1 md:rounded-3xl flex flex-col bg-white overflow-hidden shadow-inner border border-gray-100">
 
                     {/* THANH TÌM KIẾM */}
                     <div className="p-4 flex gap-2 border-b border-gray-100 z-30 bg-white shadow-sm shrink-0 relative">
@@ -317,6 +226,8 @@ const POS = () => {
                                 setSearchQuery("");
                                 setShowDropdown(false);
                             }}
+                            aria-label={showCamera ? 'Tắt camera quét mã' : 'Bật camera quét mã'}
+                            title={showCamera ? 'Tắt camera quét mã' : 'Bật camera quét mã'}
                             className={`p-3 rounded-xl transition-colors ${showCamera ? 'bg-brand-100 text-brand-600' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                         >
                             <Camera size={24} />
@@ -325,30 +236,11 @@ const POS = () => {
 
                     {/* VÙNG CAMERA */}
                     {showCamera && (
-                        <div className="relative bg-zinc-900 w-full flex-1 flex items-center justify-center overflow-hidden transition-all duration-300">
-                            {/* Khu vực chứa video của Html5Qrcode */}
-                            <div id="reader" className="absolute inset-0 w-full h-full object-cover [&>video]:object-cover [&>video]:w-full [&>video]:h-full border-none"></div>
-
-                            {/* Lớp phủ trang trí Camera */}
-                            <div className="absolute inset-0 z-10 pointer-events-none flex flex-col items-center justify-center">
-                                <div className="relative w-64 h-64 sm:w-80 sm:h-80 flex flex-col items-center justify-center">
-                                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-brand-500 rounded-tl-2xl"></div>
-                                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-brand-500 rounded-tr-2xl"></div>
-                                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-brand-500 rounded-bl-2xl"></div>
-                                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-brand-500 rounded-br-2xl"></div>
-                                    <div className="absolute top-1/2 w-full h-0.5 bg-brand-500 shadow-[0_0_15px_3px_rgba(236,72,153,0.8)] animate-pulse"></div>
-                                </div>
-                            </div>
-
-                            <button className="absolute top-4 right-4 p-3 bg-black/40 text-white rounded-full backdrop-blur-md hover:bg-black/60 transition z-20 pointer-events-auto">
-                                <Maximize2 size={20} />
-                            </button>
-
-                            <div className="absolute bottom-10 bg-zinc-800/80 text-white px-4 py-2 rounded-full text-xs font-semibold flex items-center backdrop-blur-md z-20 shadow-lg border border-white/10 pointer-events-auto">
-                                <div className="w-2.5 h-2.5 bg-green-500 rounded-full mr-2.5 animate-pulse shadow-[0_0_8px_#22c55e]"></div>
-                                Đang tìm mã vạch...
-                            </div>
-                        </div>
+                        <BarcodeScanner
+                            className="w-full flex-1"
+                            onDetected={handleScanned}
+                            onError={(msg) => showToast('error', msg)}
+                        />
                     )}
 
                     {!showCamera && (

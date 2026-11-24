@@ -16,10 +16,9 @@ import {
   Trash2,
   X,
   Loader2,
-  Camera,
-  Maximize2
+  Camera
 } from "lucide-react";
-import { Html5Qrcode } from "html5-qrcode";
+import BarcodeScanner from "../../components/BarcodeScanner";
 import { productApi } from "../../services/api";
 import { errorMessage } from "../../services/axiosClient";
 import { downloadCSV } from "../../utils/format";
@@ -85,88 +84,6 @@ const Inventory = () => {
 
   // Camera scanner state cho Modal thêm mới/sửa
   const [isScanningBarcode, setIsScanningBarcode] = useState(false);
-
-  // --- XỬ LÝ CAMERA SCANNER ---
-  useEffect(() => {
-    let isUnmounted = false;
-    let html5QrCode = null;
-    let isVideoPlaying = false;
-
-    if (isModalOpen && isScanningBarcode) {
-      const readerEl = document.getElementById("inventory-reader");
-      if (readerEl) readerEl.innerHTML = "";
-
-      html5QrCode = new Html5Qrcode("inventory-reader");
-
-      const onScanSuccess = (decodedText) => {
-        setFormData(prev => ({ ...prev, barcode: decodedText }));
-        setIsScanningBarcode(false); // tự động tắt camera khi quét xong
-      };
-
-      const config = {
-        fps: 30, // Tăng fps để nhận diện nhanh nhạy hơn
-        disableFlip: false, // Hỗ trợ quét linh hoạt
-        qrbox: (viewfinderWidth, viewfinderHeight) => {
-          // Responsive qrbox linh hoạt cho cả mobile và máy tính
-          const width = Math.min(300, Math.floor(viewfinderWidth * 0.8));
-          const height = Math.min(200, Math.floor(viewfinderHeight * 0.6));
-          return { width, height };
-        }
-      };
-
-      Html5Qrcode.getCameras().then(devices => {
-        if (isUnmounted) return;
-
-        if (devices && devices.length) {
-          // Ép trình duyệt luôn dùng camera sau (mặt lưng điện thoại)
-          html5QrCode.start(
-            { facingMode: "environment" },
-            config,
-            onScanSuccess,
-            () => { } // Bỏ qua lỗi parse
-          ).then(() => {
-            isVideoPlaying = true;
-            if (isUnmounted) {
-              html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-            }
-          }).catch(() => {
-            // Fallback cho PC (không có camera sau)
-            html5QrCode.start(
-              devices[0].id,
-              config,
-              onScanSuccess,
-              () => { }
-            ).then(() => {
-              isVideoPlaying = true;
-              if (isUnmounted) {
-                html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-              }
-            }).catch(() => {
-              setFormError("Không mở được camera. Hãy cấp quyền camera hoặc nhập mã vạch thủ công.");
-              setIsScanningBarcode(false);
-            });
-          });
-        } else {
-          setFormError("Không tìm thấy camera trên thiết bị!");
-          setIsScanningBarcode(false);
-        }
-      }).catch(() => {
-        setFormError("Trình duyệt chưa được cấp quyền camera (cần HTTPS hoặc localhost).");
-        setIsScanningBarcode(false);
-      });
-    }
-
-    return () => {
-      isUnmounted = true;
-      if (html5QrCode) {
-        if (isVideoPlaying) {
-          html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-        } else {
-          try { html5QrCode.clear(); } catch { /* đã dọn */ }
-        }
-      }
-    };
-  }, [isModalOpen, isScanningBarcode]);
 
   // --- Fetch Data ---
   const fetchData = async () => {
@@ -796,18 +713,18 @@ const Inventory = () => {
 
                     {/* KHU VỰC CAMERA SCANNER */}
                     {isScanningBarcode && (
-                      <div className="mt-2 relative rounded-xl overflow-hidden bg-black aspect-video flex items-center justify-center">
-                        <div id="inventory-reader" className="absolute inset-0 w-full h-full object-cover [&>video]:object-cover [&>video]:w-full [&>video]:h-full border-none"></div>
-                        <div className="absolute inset-0 z-10 pointer-events-none flex flex-col items-center justify-center">
-                          <div className="relative w-3/4 h-3/4">
-                            <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-brand-500 rounded-tl-xl"></div>
-                            <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-brand-500 rounded-tr-xl"></div>
-                            <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-brand-500 rounded-bl-xl"></div>
-                            <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-brand-500 rounded-br-xl"></div>
-                            <div className="absolute top-1/2 w-full h-0.5 bg-brand-500 shadow-[0_0_10px_2px_rgba(236,72,153,0.8)] animate-pulse"></div>
-                          </div>
-                        </div>
-                      </div>
+                      <BarcodeScanner
+                        compact
+                        className="mt-2 rounded-xl aspect-video"
+                        onDetected={(code) => {
+                          setFormData(prev => ({ ...prev, barcode: code }));
+                          setIsScanningBarcode(false); // tự tắt camera khi quét xong
+                        }}
+                        onError={(msg) => {
+                          setFormError(msg + " Bạn có thể nhập mã vạch thủ công.");
+                          setIsScanningBarcode(false);
+                        }}
+                      />
                     )}
                   </div>
                 </div>
