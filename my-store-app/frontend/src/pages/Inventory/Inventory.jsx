@@ -16,14 +16,23 @@ import {
   Trash2,
   X,
   Loader2,
-  Camera,
-  Maximize2
+  Camera
 } from "lucide-react";
-import { Html5Qrcode } from "html5-qrcode";
+import BarcodeScanner from "../../components/BarcodeScanner";
 import { productApi } from "../../services/api";
+import { errorMessage } from "../../services/axiosClient";
+import { downloadCSV } from "../../utils/format";
+import { getUser, ROLES } from "../../utils/auth";
+
+// Hiển thị tối đa 7 nút trang quanh trang hiện tại
+const pageWindow = (current, total) => {
+  const start = Math.max(1, Math.min(current - 3, total - 6));
+  return Array.from({ length: Math.min(7, total) }, (_, i) => start + i);
+};
 
 const Inventory = () => {
-
+  // Chỉ chủ cửa hàng được thêm / sửa / xoá (backend cũng chặn tương tự)
+  const canManage = getUser()?.role === ROLES.STORE_ADMIN;
 
   // --- Utilities ---
   const [products, setProducts] = useState([]);
@@ -76,83 +85,6 @@ const Inventory = () => {
   // Camera scanner state cho Modal thêm mới/sửa
   const [isScanningBarcode, setIsScanningBarcode] = useState(false);
 
-  // --- XỬ LÝ CAMERA SCANNER ---
-  useEffect(() => {
-    let isUnmounted = false;
-    let html5QrCode = null;
-    let isVideoPlaying = false;
-
-    if (isModalOpen && isScanningBarcode) {
-      const readerEl = document.getElementById("inventory-reader");
-      if (readerEl) readerEl.innerHTML = "";
-
-      html5QrCode = new Html5Qrcode("inventory-reader");
-
-      const onScanSuccess = (decodedText) => {
-        setFormData(prev => ({ ...prev, barcode: decodedText }));
-        setIsScanningBarcode(false); // tự động tắt camera khi quét xong
-      };
-
-      const config = {
-        fps: 30, // Tăng fps để nhận diện nhanh nhạy hơn
-        disableFlip: false, // Hỗ trợ quét linh hoạt
-        qrbox: (viewfinderWidth, viewfinderHeight) => {
-          // Responsive qrbox linh hoạt cho cả mobile và máy tính
-          const width = Math.min(300, Math.floor(viewfinderWidth * 0.8));
-          const height = Math.min(200, Math.floor(viewfinderHeight * 0.6));
-          return { width, height };
-        }
-      };
-
-      Html5Qrcode.getCameras().then(devices => {
-        if (isUnmounted) return;
-
-        if (devices && devices.length) {
-          // Ép trình duyệt luôn dùng camera sau (mặt lưng điện thoại)
-          html5QrCode.start(
-            { facingMode: "environment" },
-            config,
-            onScanSuccess,
-            () => { } // Bỏ qua lỗi parse
-          ).then(() => {
-            isVideoPlaying = true;
-            if (isUnmounted) {
-              html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-            }
-          }).catch(err => {
-            console.log("Lỗi khởi tạo camera sau, thử dùng camera mặc định:", err);
-            // Fallback cho PC (không có camera sau)
-            html5QrCode.start(
-              devices[0].id,
-              config,
-              onScanSuccess,
-              () => { }
-            ).then(() => {
-              isVideoPlaying = true;
-              if (isUnmounted) {
-                html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-              }
-            }).catch(fallbackErr => console.log("Lỗi camera fallback:", fallbackErr));
-          });
-        } else {
-          alert("Không tìm thấy camera!");
-          setIsScanningBarcode(false);
-        }
-      }).catch(err => console.log(err));
-    }
-
-    return () => {
-      isUnmounted = true;
-      if (html5QrCode) {
-        if (isVideoPlaying) {
-          html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-        } else {
-          try { html5QrCode.clear(); } catch (e) { }
-        }
-      }
-    };
-  }, [isModalOpen, isScanningBarcode]);
-
   // --- Fetch Data ---
   const fetchData = async () => {
     try {
@@ -167,8 +99,7 @@ const Inventory = () => {
       setProducts(prodsRes.data || []);
       setCategories(catsRes.data || []);
     } catch (err) {
-      console.error("Error loading inventory data:", err);
-      setErrorMsg("Không thể kết nối đến server hoặc phiên đăng nhập hết hạn.");
+      setErrorMsg(errorMessage(err, "Không tải được dữ liệu kho hàng."));
     } finally {
       setLoading(false);
     }
@@ -273,8 +204,8 @@ const Inventory = () => {
       setFormError("Giá tiền không được nhỏ hơn 0!");
       return;
     }
-    if (Number(formData.stock_quantity) < 0) {
-      setFormError("Số lượng tồn kho không được nhỏ hơn 0!");
+    if (!Number.isInteger(Number(formData.stock_quantity)) || Number(formData.stock_quantity) < 0) {
+      setFormError("Số lượng tồn kho phải là số nguyên không âm!");
       return;
     }
 
@@ -300,8 +231,7 @@ const Inventory = () => {
       setIsScanningBarcode(false);
       fetchData(); // Reload list
     } catch (err) {
-      console.error("Error submitting form:", err);
-      setFormError(err.response?.data?.message || "Đã xảy ra lỗi khi lưu sản phẩm.");
+      setFormError(errorMessage(err, "Đã xảy ra lỗi khi lưu sản phẩm."));
     }
   };
 
@@ -320,8 +250,7 @@ const Inventory = () => {
       setIsCategoryModalOpen(false);
       setNewCategoryName("");
     } catch (err) {
-      console.error("Error creating category:", err);
-      setCategoryFormError(err.response?.data?.message || "Đã xảy ra lỗi khi tạo danh mục.");
+      setCategoryFormError(errorMessage(err, "Đã xảy ra lỗi khi tạo danh mục."));
     }
   };
 
@@ -340,8 +269,8 @@ const Inventory = () => {
         fetchData(); // Reload list
       }
     } catch (err) {
-      console.error("Error deleting product:", err);
-      alert(err.response?.data?.message || "Đã xảy ra lỗi khi xóa sản phẩm.");
+      setIsDeleteConfirmOpen(false);
+      setErrorMsg(errorMessage(err, "Đã xảy ra lỗi khi xóa sản phẩm."));
     }
   };
 
@@ -359,17 +288,8 @@ const Inventory = () => {
       getCategoryName(p.category_id)
     ]);
 
-    // Thêm BOM tiếng Việt cho Excel
-    let csvContent = "data:text/csv;charset=utf-8,\uFEFF"
-      + [headers.join(","), ...rows.map(e => e.map(val => `"${val}"`).join(","))].join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `danh_sach_kho_hang_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    // Có BOM cho Excel đọc đúng tiếng Việt; ô nguy hiểm (=, +, -, @) được vô hiệu hoá
+    downloadCSV(`danh_sach_kho_hang_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
   return (
@@ -384,13 +304,15 @@ const Inventory = () => {
             <h1 className="text-2xl font-bold text-gray-800">Kho hàng</h1>
             <p className="text-sm text-gray-500 mt-1">Quản lý và theo dõi vật tư thực tế</p>
           </div>
-          <button
-            onClick={handleOpenAddModal}
-            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#9D2753] to-[#ef6292] hover:opacity-90 transition-opacity text-white text-sm font-bold rounded-xl shadow-md"
-          >
-            <Plus size={16} />
-            <span>Thêm sản phẩm</span>
-          </button>
+          {canManage && (
+            <button
+              onClick={handleOpenAddModal}
+              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-brand-700 to-brand-500 hover:opacity-90 transition-opacity text-white text-sm font-bold rounded-xl shadow-md"
+            >
+              <Plus size={16} />
+              <span>Thêm sản phẩm</span>
+            </button>
+          )}
         </div>
 
         {/* 3 Thẻ Card Thống Kê */}
@@ -398,7 +320,7 @@ const Inventory = () => {
 
           {/* Card 1: Tổng số lượng tồn */}
           <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-400 rounded-l-2xl"></div>
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-brand-500 rounded-l-2xl"></div>
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">TỔNG SẢN PHẨM TRONG KHO</p>
@@ -406,7 +328,7 @@ const Inventory = () => {
                   {loading ? "..." : totalStockQuantity.toLocaleString()}
                 </h3>
               </div>
-              <div className="p-2.5 bg-pink-50 text-pink-500 rounded-xl">
+              <div className="p-2.5 bg-brand-50 text-brand-500 rounded-xl">
                 <Package size={22} />
               </div>
             </div>
@@ -417,11 +339,11 @@ const Inventory = () => {
 
           {/* Card 2: Sắp hết hàng */}
           <div className="bg-white rounded-2xl p-6 border border-gray-100 shadow-sm relative overflow-hidden">
-            <div className="absolute left-0 top-0 bottom-0 w-1 bg-rose-600 rounded-l-2xl"></div>
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-500 rounded-l-2xl"></div>
             <div className="flex justify-between items-start">
               <div>
                 <p className="text-gray-500 text-xs font-bold uppercase tracking-wide mb-1">SẮP HẾT HÀNG (&lt; 20)</p>
-                <h3 className={`text-3xl font-black mb-4 ${lowStockProductsCount > 0 ? 'text-rose-600' : 'text-gray-800'}`}>
+                <h3 className={`text-3xl font-black mb-4 ${lowStockProductsCount > 0 ? 'text-brand-600' : 'text-gray-800'}`}>
                   {loading ? "..." : lowStockProductsCount}
                 </h3>
               </div>
@@ -435,13 +357,13 @@ const Inventory = () => {
           </div>
 
           {/* Card 3: Tổng giá trị kho */}
-          <div className="bg-gradient-to-br from-rose-500 to-pink-500 rounded-2xl p-6 text-white shadow-md relative overflow-hidden">
+          <div className="bg-gradient-to-br from-brand-500 to-brand-500 rounded-2xl p-6 text-white shadow-md relative overflow-hidden">
             <div className="absolute -right-6 -top-6 w-32 h-32 bg-white opacity-10 rounded-full"></div>
-            <p className="text-rose-100 text-xs font-bold uppercase tracking-wide mb-1 opacity-90">GIÁ TRỊ KHO (GIÁ NHẬP)</p>
+            <p className="text-brand-100 text-xs font-bold uppercase tracking-wide mb-1 opacity-90">GIÁ TRỊ KHO (GIÁ NHẬP)</p>
             <h3 className="text-3xl font-black tracking-tight mb-1">
               {loading ? "..." : formatPrice(totalInventoryValue)}
             </h3>
-            <p className="text-rose-100 text-sm font-medium mb-4">Ước tính tổng tiền nhập</p>
+            <p className="text-brand-100 text-sm font-medium mb-4">Ước tính tổng tiền nhập</p>
           </div>
 
         </div>
@@ -455,7 +377,7 @@ const Inventory = () => {
             <button
               onClick={() => { setSelectedCategory(null); setCurrentPage(1); }}
               className={`px-5 py-2 text-sm rounded-full transition-all ${selectedCategory === null
-                ? "bg-rose-700 text-white font-bold shadow-sm"
+                ? "bg-brand-700 text-white font-bold shadow-sm"
                 : "bg-white text-gray-600 font-semibold border border-gray-200 hover:bg-gray-50"
                 }`}
             >
@@ -466,7 +388,7 @@ const Inventory = () => {
                 key={cat.id}
                 onClick={() => { setSelectedCategory(cat.id); setCurrentPage(1); }}
                 className={`px-5 py-2 text-sm rounded-full transition-all ${selectedCategory === cat.id
-                  ? "bg-rose-700 text-white font-bold shadow-sm"
+                  ? "bg-brand-700 text-white font-bold shadow-sm"
                   : "bg-white text-gray-600 font-semibold border border-gray-200 hover:bg-gray-50"
                   }`}
               >
@@ -477,7 +399,7 @@ const Inventory = () => {
 
           {/* Tìm kiếm & Xuất file */}
           <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-            <div className="relative flex-1 sm:flex-initial flex items-center bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-rose-700/30">
+            <div className="relative flex-1 sm:flex-initial flex items-center bg-white border border-gray-200 rounded-xl px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-brand-700/30">
               <Search size={16} className="text-gray-400 mr-2" />
               <input
                 type="text"
@@ -502,7 +424,7 @@ const Inventory = () => {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-8 min-h-[350px]">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-24 space-y-3">
-              <Loader2 className="w-8 h-8 text-rose-700 animate-spin" />
+              <Loader2 className="w-8 h-8 text-brand-700 animate-spin" />
               <p className="text-sm text-gray-500 font-medium">Đang tải dữ liệu kho hàng...</p>
             </div>
           ) : errorMsg ? (
@@ -510,7 +432,7 @@ const Inventory = () => {
               <p className="text-red-500 font-medium mb-4">{errorMsg}</p>
               <button
                 onClick={fetchData}
-                className="px-4 py-2 bg-rose-700 text-white rounded-lg text-sm font-bold shadow-sm"
+                className="px-4 py-2 bg-brand-700 text-white rounded-lg text-sm font-bold shadow-sm"
               >
                 Tải lại trang
               </button>
@@ -550,7 +472,7 @@ const Inventory = () => {
                               )}
                             </div>
                             <div>
-                              <p className="font-bold text-gray-800 text-base group-hover:text-rose-700 transition-colors">{p.name}</p>
+                              <p className="font-bold text-gray-800 text-base group-hover:text-brand-700 transition-colors">{p.name}</p>
                               <p className="text-gray-400 text-xs mt-0.5">ID: {p.id}</p>
                             </div>
                           </td>
@@ -575,7 +497,7 @@ const Inventory = () => {
                               </span>
                               <div className="w-full bg-gray-100 rounded-full h-1.5">
                                 <div
-                                  className={`h-1.5 rounded-full ${isLowStock ? 'bg-red-500' : 'bg-rose-700'}`}
+                                  className={`h-1.5 rounded-full ${isLowStock ? 'bg-red-500' : 'bg-brand-700'}`}
                                   style={{ width: `${Math.min(100, ((p.stock_quantity || 0) / 150) * 100)}%` }}
                                 ></div>
                               </div>
@@ -591,18 +513,19 @@ const Inventory = () => {
                             )}
                           </td>
                           <td className="py-4 px-6 text-center relative">
-                            <button
+                            {canManage && (<button
+                              aria-label={`Thao tác với ${p.name}`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setActiveDropdownId(activeDropdownId === p.id ? null : p.id);
                               }}
-                              className="text-gray-400 hover:text-rose-700 transition-colors p-1.5 rounded-lg hover:bg-rose-50"
+                              className="text-gray-400 hover:text-brand-700 transition-colors p-1.5 rounded-lg hover:bg-brand-50"
                             >
                               <MoreVertical size={18} />
-                            </button>
+                            </button>)}
 
                             {/* Actions Dropdown Menu */}
-                            {activeDropdownId === p.id && (
+                            {canManage && activeDropdownId === p.id && (
                               <div className="absolute right-12 top-4 w-32 bg-white rounded-xl shadow-xl border border-gray-100 z-30 py-1 text-left animate-in fade-in duration-100">
                                 <button
                                   onClick={() => handleOpenEditModal(p)}
@@ -644,8 +567,8 @@ const Inventory = () => {
                         <div className="flex-1 min-w-0 pr-16">
                           <h3 className="font-bold text-gray-800 text-sm mb-1 leading-tight">{p.name}</h3>
                           <div className="flex items-center gap-2 mb-2">
-                            <span className="text-[10px] bg-[#fee6ed] text-[#9D2753] font-bold px-2 py-0.5 rounded uppercase tracking-wider">
-                              {p.category_name || 'Khác'}
+                            <span className="text-[10px] bg-brand-50 text-brand-700 font-bold px-2 py-0.5 rounded uppercase tracking-wider">
+                              {getCategoryName(p.category_id)}
                             </span>
                             <span className="text-[10px] text-gray-400 font-mono text-ellipsis overflow-hidden">
                               {p.barcode || 'N/A'}
@@ -668,15 +591,17 @@ const Inventory = () => {
                         </div>
                       </div>
 
-                      {/* Thao tác (Edit/Delete) */}
-                      <div className="absolute top-4 right-4 flex gap-1">
-                        <button onClick={() => handleOpenEditModal(p)} className="p-2 text-blue-500 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors">
-                          <Edit size={14} />
-                        </button>
-                        <button onClick={() => handleOpenDeleteConfirm(p)} className="p-2 text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                      {/* Thao tác (Edit/Delete) — chỉ chủ cửa hàng */}
+                      {canManage && (
+                        <div className="absolute top-4 right-4 flex gap-1">
+                          <button aria-label="Sửa" onClick={() => handleOpenEditModal(p)} className="p-2 text-blue-500 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors">
+                            <Edit size={14} />
+                          </button>
+                          <button aria-label="Xoá" onClick={() => handleOpenDeleteConfirm(p)} className="p-2 text-red-500 bg-red-50 hover:bg-red-100 rounded-lg transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -685,7 +610,9 @@ const Inventory = () => {
               {/* Pagination */}
               <div className="border-t border-gray-100 px-6 py-4 flex flex-col md:flex-row items-center justify-between text-sm">
                 <span className="text-gray-500 mb-4 md:mb-0">
-                  Hiển thị {indexOfFirstProduct + 1} đến {Math.min(indexOfLastProduct, filteredProducts.length)} trong tổng số {filteredProducts.length} sản phẩm
+                  {filteredProducts.length === 0
+                    ? 'Không có sản phẩm nào'
+                    : `Hiển thị ${indexOfFirstProduct + 1} đến ${Math.min(indexOfLastProduct, filteredProducts.length)} trong tổng số ${filteredProducts.length} sản phẩm`}
                 </span>
                 <div className="flex items-center space-x-1">
                   <button
@@ -695,16 +622,17 @@ const Inventory = () => {
                   >
                     <ChevronLeft size={18} />
                   </button>
-                  {[...Array(totalPages)].map((_, i) => (
+                  {pageWindow(currentPage, totalPages).map((n) => (
                     <button
-                      key={i + 1}
-                      onClick={() => setCurrentPage(i + 1)}
-                      className={`w-8 h-8 flex items-center justify-center rounded-lg font-bold transition-all ${currentPage === i + 1
-                        ? "bg-rose-700 text-white shadow-sm"
+                      key={n}
+                      onClick={() => setCurrentPage(n)}
+                      aria-current={currentPage === n ? 'page' : undefined}
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg font-bold transition-all ${currentPage === n
+                        ? "bg-brand-700 text-white shadow-sm"
                         : "text-gray-600 hover:bg-gray-100 font-medium"
                         }`}
                     >
-                      {i + 1}
+                      {n}
                     </button>
                   ))}
                   <button
@@ -726,7 +654,7 @@ const Inventory = () => {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="bg-gradient-to-r from-[#9D2753] to-[#ef6292] p-5 text-white flex justify-between items-center">
+            <div className="bg-gradient-to-r from-brand-700 to-brand-500 p-5 text-white flex justify-between items-center">
               <h2 className="text-lg font-bold flex items-center gap-2">
                 <Package size={20} />
                 {modalMode === "add" ? "Thêm sản phẩm mới" : "Chỉnh sửa sản phẩm"}
@@ -758,8 +686,8 @@ const Inventory = () => {
                       required
                       value={formData.name}
                       onChange={handleFormChange}
-                      placeholder="VD: Sữa Meiji số 0 800g"
-                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                      placeholder="VD: Nước suối Lavie 500ml"
+                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-700/30 transition-all"
                     />
                   </div>
                   <div>
@@ -768,7 +696,7 @@ const Inventory = () => {
                       <button
                         type="button"
                         onClick={() => setIsScanningBarcode(!isScanningBarcode)}
-                        className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 text-[10px] ${isScanningBarcode ? 'bg-pink-100 text-pink-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                        className={`p-1.5 rounded-lg transition-colors flex items-center gap-1 text-[10px] ${isScanningBarcode ? 'bg-brand-100 text-brand-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
                       >
                         <Camera size={12} />
                         {isScanningBarcode ? 'Tắt quét' : 'Quét mã'}
@@ -780,23 +708,23 @@ const Inventory = () => {
                       value={formData.barcode}
                       onChange={handleFormChange}
                       placeholder="Mã vạch số"
-                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-700/30 transition-all"
                     />
 
                     {/* KHU VỰC CAMERA SCANNER */}
                     {isScanningBarcode && (
-                      <div className="mt-2 relative rounded-xl overflow-hidden bg-black aspect-video flex items-center justify-center">
-                        <div id="inventory-reader" className="absolute inset-0 w-full h-full object-cover [&>video]:object-cover [&>video]:w-full [&>video]:h-full border-none"></div>
-                        <div className="absolute inset-0 z-10 pointer-events-none flex flex-col items-center justify-center">
-                          <div className="relative w-3/4 h-3/4">
-                            <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-pink-500 rounded-tl-xl"></div>
-                            <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-pink-500 rounded-tr-xl"></div>
-                            <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-pink-500 rounded-bl-xl"></div>
-                            <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-pink-500 rounded-br-xl"></div>
-                            <div className="absolute top-1/2 w-full h-0.5 bg-pink-500 shadow-[0_0_10px_2px_rgba(236,72,153,0.8)] animate-pulse"></div>
-                          </div>
-                        </div>
-                      </div>
+                      <BarcodeScanner
+                        compact
+                        className="mt-2 rounded-xl aspect-video"
+                        onDetected={(code) => {
+                          setFormData(prev => ({ ...prev, barcode: code }));
+                          setIsScanningBarcode(false); // tự tắt camera khi quét xong
+                        }}
+                        onError={(msg) => {
+                          setFormError(msg + " Bạn có thể nhập mã vạch thủ công.");
+                          setIsScanningBarcode(false);
+                        }}
+                      />
                     )}
                   </div>
                 </div>
@@ -813,7 +741,7 @@ const Inventory = () => {
                       value={formData.cost_price}
                       onChange={handleFormChange}
                       placeholder="Giá nhập mua hàng"
-                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-700/30 transition-all"
                     />
                   </div>
                   <div>
@@ -826,7 +754,7 @@ const Inventory = () => {
                       value={formData.sell_price}
                       onChange={handleFormChange}
                       placeholder="Giá bán bán lẻ"
-                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-700/30 transition-all"
                     />
                   </div>
                   <div>
@@ -839,7 +767,7 @@ const Inventory = () => {
                       value={formData.stock_quantity}
                       onChange={handleFormChange}
                       placeholder="Tồn kho thực tế"
-                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                      className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-700/30 transition-all"
                     />
                   </div>
                 </div>
@@ -851,7 +779,7 @@ const Inventory = () => {
                     <button 
                       type="button" 
                       onClick={() => setIsCategoryModalOpen(true)}
-                      className="text-xs font-bold text-rose-600 hover:text-rose-800 transition-colors"
+                      className="text-xs font-bold text-brand-600 hover:text-brand-800 transition-colors"
                     >
                       + Thêm danh mục mới
                     </button>
@@ -860,7 +788,7 @@ const Inventory = () => {
                     name="category_id"
                     value={formData.category_id}
                     onChange={handleFormChange}
-                    className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                    className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-700/30 transition-all"
                   >
                     <option value="">Chọn danh mục...</option>
                     {categories.map(cat => (
@@ -881,7 +809,7 @@ const Inventory = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 bg-gradient-to-r from-[#9D2753] to-[#ef6292] text-white font-bold rounded-xl text-sm hover:opacity-95 transition-opacity"
+                  className="px-5 py-2.5 bg-gradient-to-r from-brand-700 to-brand-500 text-white font-bold rounded-xl text-sm hover:opacity-95 transition-opacity"
                 >
                   Lưu sản phẩm
                 </button>
@@ -895,7 +823,7 @@ const Inventory = () => {
       {isCategoryModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-gradient-to-r from-[#9D2753] to-[#ef6292] p-4 text-white flex justify-between items-center">
+            <div className="bg-gradient-to-r from-brand-700 to-brand-500 p-4 text-white flex justify-between items-center">
               <h2 className="text-base font-bold">Thêm danh mục mới</h2>
               <button
                 onClick={() => setIsCategoryModalOpen(false)}
@@ -918,8 +846,8 @@ const Inventory = () => {
                     required
                     value={newCategoryName}
                     onChange={(e) => setNewCategoryName(e.target.value)}
-                    placeholder="VD: Đồ ăn vặt"
-                    className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#9D2753]/30 transition-all"
+                    placeholder="VD: Đồ uống"
+                    className="w-full px-4 py-2.5 bg-[#f4f5f7] border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-brand-700/30 transition-all"
                   />
                 </div>
               </div>
@@ -933,7 +861,7 @@ const Inventory = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-gradient-to-r from-[#9D2753] to-[#ef6292] text-white font-bold rounded-xl text-sm hover:opacity-95"
+                  className="px-4 py-2 bg-gradient-to-r from-brand-700 to-brand-500 text-white font-bold rounded-xl text-sm hover:opacity-95"
                 >
                   Lưu
                 </button>

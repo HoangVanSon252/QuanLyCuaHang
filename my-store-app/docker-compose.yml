@@ -1,0 +1,144 @@
+# =====================================================================
+#  UniPOS — chạy toàn bộ hệ thống bằng Docker
+#    docker compose up -d --build                 (máy cá nhân / server nội bộ, HTTP)
+#    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#                                                 (production có HTTPS tự động)
+#  Cấu hình lấy từ file .env cạnh file này (copy từ .env.example).
+# =====================================================================
+name: unipos
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  # ---------------- Cơ sở dữ liệu ----------------
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Cần đặt MYSQL_ROOT_PASSWORD trong .env}
+      MYSQL_DATABASE: ${DB_NAME:-quanlycuahang}
+      MYSQL_USER: ${DB_USER:-app}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Cần đặt DB_PASSWORD trong .env}
+      TZ: Asia/Ho_Chi_Minh
+    # Cấu hình MySQL truyền qua tham số (file .cnf mount từ Windows có thể bị MySQL bỏ qua)
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+07:00
+      - --max-connections=300
+      - --innodb-buffer-pool-size=${MYSQL_BUFFER_POOL:-256M}
+      - --slow-query-log=1
+      - --long-query-time=1
+      - --skip-name-resolve
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./backend/db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u root -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks: [backend_net]
+    logging: *default-logging
+    # Không mở cổng DB ra ngoài. Cần truy cập để quản trị: docker compose exec db mysql -u root -p
+
+  # ---------------- API (Node.js / Express) ----------------
+  backend:
+    build: ./backend
+    image: unipos-backend:latest
+    restart: unless-stopped
+    init: true
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-quanlycuahang}
+      DB_USER: ${DB_USER:-app}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-20}
+      JWT_SECRET: ${JWT_SECRET:?Cần đặt JWT_SECRET trong .env}
+      JWT_REFRESH_TOKEN: ${JWT_REFRESH_TOKEN:?Cần đặt JWT_REFRESH_TOKEN trong .env}
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL_DAYS: ${JWT_REFRESH_TTL_DAYS:-7}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      TRUST_PROXY: 1
+      RATE_LIMIT_LOGIN: ${RATE_LIMIT_LOGIN:-10}
+      RATE_LIMIT_API: ${RATE_LIMIT_API:-600}
+      LOGIN_MAX_FAILED: ${LOGIN_MAX_FAILED:-5}
+      LOGIN_LOCK_MINUTES: ${LOGIN_LOCK_MINUTES:-15}
+      SUPER_ADMIN_USERNAME: ${SUPER_ADMIN_USERNAME:-admin}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
+    # Backend không lưu trạng thái (JWT + refresh token trong DB) → nhân bản được để chịu tải
+    deploy:
+      replicas: ${BACKEND_REPLICAS:-2}
+      resources:
+        limits:
+          memory: 512M
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend_net]
+    logging: *default-logging
+
+  # ---------------- Giao diện + reverse proxy (Nginx) ----------------
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: /api
+    image: unipos-web:latest
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NGINX_API_RATE: ${NGINX_API_RATE:-50r/s}
+      NGINX_API_BURST: ${NGINX_API_BURST:-100}
+      NGINX_LOGIN_RATE: ${NGINX_LOGIN_RATE:-30r/m}
+    ports:
+      - "${WEB_PORT:-80}:8080"
+    read_only: true
+    # conf.d được sinh từ template lúc khởi động nên cần vùng ghi tạm
+    tmpfs: [/tmp, "/etc/nginx/conf.d:uid=101,gid=101"]
+    security_opt: ["no-new-privileges:true"]
+    networks: [backend_net, edge_net]
+    logging: *default-logging
+
+  # ---------------- Sao lưu DB tự động ----------------
+  backup:
+    image: mysql:8.0
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: db
+      MYSQL_DATABASE: ${DB_NAME:-quanlycuahang}
+      MYSQL_PWD: ${MYSQL_ROOT_PASSWORD}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      TZ: Asia/Ho_Chi_Minh
+    volumes:
+      - ${BACKUP_DIR:-./backups}:/backups
+      - ./deploy/backup/backup.sh:/backup.sh:ro
+    entrypoint: ["bash", "/backup.sh"]
+    networks: [backend_net]
+    logging: *default-logging
+
+volumes:
+  db_data:
+
+networks:
+  backend_net:
+    internal: false
+  edge_net:

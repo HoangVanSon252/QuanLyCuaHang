@@ -1,53 +1,44 @@
 const importOrderModel = require("../models/importOrderModel");
+const audit = require("../utils/audit");
+const v = require("../utils/validators");
+const { notFound, asyncHandler } = require("../utils/httpError");
 
-const createImportOrder = async (req, res) => {
-    try {
-        const store_id = req.user.store_id;
-        const user_id = req.user.userId;
-        const importData = req.body;
-        if (!importData || !importData.items || importData.items.length === 0) {
-            return res.status(400).json({ message: "Danh sách nhập hàng đang trống" });
-        }
-        //gọi hàm createImportOrder trong model
-        const result = await importOrderModel.createImportOrder(store_id, user_id, importData);
-        res.status(200).json({ message: "Nhập hàng thành công", importOrderId: result.importOrderId, orderCode: result.orderCode });
-    } catch (error) {
-        console.error("Lỗi khi tạo phiếu nhập hàng:", error);
-        res.status(500).json({ message: "Lỗi hệ thống" });
-    }
-}
-// Lấy danh sách lịch sử phiếu nhập
-const getAllImportOrders = async (req, res) => {
-    try {
-        const store_id = req.user.store_id;
-        const orders = await importOrderModel.getAllImportOrders(store_id);
-        res.status(200).json(orders);
-    } catch (error) {
-        console.error("Lỗi khi lấy lịch sử phiếu nhập:", error);
-        res.status(500).json({ message: "Lỗi hệ thống" });
-    }
-};
+const createImportOrder = asyncHandler(async (req, res) => {
+  const body = req.body || {};
+  const importData = {
+    items: v.items(body.items, { withPrice: true }),
+    supplier_name: v.str(body.supplier_name, "Nhà cung cấp", { max: 150 }),
+    note: v.str(body.note, "Ghi chú", { max: 255 }),
+  };
+  const result = await importOrderModel.createImportOrder(req.user.store_id, req.user.userId, importData);
+  await audit(req, "import_created", {
+    entity: "import_order",
+    entityId: result.importOrderId,
+    detail: { code: result.orderCode, total: result.total_amount, items: importData.items.length },
+  });
+  res.status(201).json({
+    message: "Nhập hàng thành công",
+    importOrderId: result.importOrderId,
+    orderCode: result.orderCode,
+    total_amount: result.total_amount,
+  });
+});
 
-// Xem chi tiết một phiếu nhập
-const getImportOrderById = async (req, res) => {
-    try {
-        const store_id = req.user.store_id;
-        const import_id = req.params.id; // Lấy ID từ trên URL
-        
-        const order = await importOrderModel.getImportOrderById(import_id, store_id);
-        if (!order) {
-            return res.status(404).json({ message: "Không tìm thấy phiếu nhập này!" });
-        }
-        
-        res.status(200).json(order);
-    } catch (error) {
-        console.error("Lỗi khi lấy chi tiết phiếu nhập:", error);
-        res.status(500).json({ message: "Lỗi hệ thống" });
-    }
-};
+const getAllImportOrders = asyncHandler(async (req, res) => {
+  const { page, limit, offset } = v.pagination(req.query);
+  const { rows, total } = await importOrderModel.getAllImportOrders(req.user.store_id, {
+    limit,
+    offset,
+    from: v.date(req.query.from, "Từ ngày"),
+    to: v.date(req.query.to, "Đến ngày"),
+  });
+  res.status(200).json({ data: rows, page, limit, total });
+});
 
-module.exports = {
-    createImportOrder,
-    getAllImportOrders,
-    getImportOrderById
-};
+const getImportOrderById = asyncHandler(async (req, res) => {
+  const order = await importOrderModel.getImportOrderById(v.id(req.params.id, "Mã phiếu nhập"), req.user.store_id);
+  if (!order) throw notFound("Không tìm thấy phiếu nhập này!");
+  res.status(200).json(order);
+});
+
+module.exports = { createImportOrder, getAllImportOrders, getImportOrderById };

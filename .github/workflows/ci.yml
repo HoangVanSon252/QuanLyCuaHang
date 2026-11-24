@@ -1,0 +1,109 @@
+# Kiểm tra tự động mỗi lần push / tạo Pull Request:
+#  1) Lint + build frontend, kiểm tra lỗ hổng thư viện
+#  2) Dựng toàn bộ hệ thống bằng Docker → chạy kiểm thử API + E2E trên trình duyệt thật
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: my-store-app
+
+jobs:
+  lint-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Backend — cài đặt & kiểm tra lỗ hổng
+        working-directory: my-store-app/backend
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+          node --check server.js
+      - name: Backend — quét mã nguồn chống SQL injection (không cần server)
+        working-directory: my-store-app/backend
+        run: npm run test:static
+      - name: Frontend — lint, build, kiểm tra lỗ hổng
+        working-directory: my-store-app/frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+          npm audit --omit=dev --audit-level=high
+
+  e2e:
+    needs: lint-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Tạo file .env với bí mật ngẫu nhiên (chỉ dùng cho CI)
+        run: |
+          r() { openssl rand -hex "$1"; }
+          cat > .env <<EOF
+          DB_NAME=quanlycuahang
+          DB_USER=app
+          DB_PASSWORD=$(r 16)
+          MYSQL_ROOT_PASSWORD=$(r 16)
+          JWT_SECRET=$(r 48)
+          JWT_REFRESH_TOKEN=$(r 48)
+          SUPER_ADMIN_USERNAME=admin
+          SUPER_ADMIN_PASSWORD=CiAdmin12345
+          WEB_PORT=8088
+          COOKIE_SECURE=false
+          BACKEND_REPLICAS=2
+          EOF
+
+      - name: Dựng hệ thống bằng Docker Compose
+        run: docker compose up -d --build --wait --wait-timeout 300
+
+      - name: Kiểm thử API (bảo mật, SQL injection, phân quyền, nghiệp vụ, đồng thời)
+        working-directory: my-store-app/backend
+        env:
+          API_URL: http://localhost:8088/api
+          ADMIN_PASSWORD: CiAdmin12345
+        run: |
+          npm ci
+          npm test
+
+      - name: Kiểm thử E2E trên trình duyệt (Playwright)
+        working-directory: my-store-app/e2e
+        env:
+          BASE_URL: http://localhost:8088
+          ADMIN_PASSWORD: CiAdmin12345
+          PW_CHANNEL: chromium
+          CI: "true"
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npx playwright test
+
+      - name: Lưu báo cáo Playwright khi lỗi
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: my-store-app/e2e/playwright-report
+          retention-days: 7
+
+      - name: Log container khi lỗi
+        if: failure()
+        run: docker compose logs --no-color --tail=300
+
+      - name: Dọn dẹp
+        if: always()
+        run: docker compose down -v

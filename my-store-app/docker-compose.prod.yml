@@ -1,0 +1,42 @@
+# =====================================================================
+#  Lớp bổ sung cho PRODUCTION: Caddy tự xin chứng chỉ HTTPS (Let's Encrypt)
+#    docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#  Yêu cầu: DOMAIN trỏ DNS về IP server, ACME_EMAIL hợp lệ, mở cổng 80 và 443.
+# =====================================================================
+services:
+  web:
+    # Không mở cổng trực tiếp ra Internet — chỉ Caddy truy cập được
+    ports: !reset []
+
+  backend:
+    environment:
+      COOKIE_SECURE: "true"
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      DOMAIN: "${DOMAIN:?Cần đặt DOMAIN trong .env, ví dụ quanly.cuahang.vn}"
+      # Email nhận cảnh báo chứng chỉ sắp hết hạn từ Let's Encrypt
+      ACME_EMAIL: "${ACME_EMAIL:?Cần đặt ACME_EMAIL trong .env}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [edge_net]
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  caddy_data:
+  caddy_config:

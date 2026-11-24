@@ -1,17 +1,18 @@
 import React from "react";
 import Header from "../../components/Navbar";
-import axiosClient from '../../services/axiosClient';
+import axiosClient, { errorMessage } from '../../services/axiosClient';
+import { orderApi } from '../../services/api';
+import { formatCurrency, PAYMENT_LABELS } from '../../utils/format';
 import {
     Trash2,
     Camera,
-    Maximize2,
     Search,
     X,
     ShoppingCart,
     CheckCircle,
     AlertCircle
 } from "lucide-react";
-import { Html5Qrcode } from "html5-qrcode";
+import BarcodeScanner from "../../components/BarcodeScanner";
 
 const POS = () => {
     const [products, setProducts] = React.useState([]);
@@ -31,18 +32,48 @@ const POS = () => {
         }, 3000);
     };
 
-    React.useEffect(() => {
-        const fetchProducts = async () => {
-            try {
-                const response = await axiosClient.get("/products");
-                const payload = response.data;
-                setProducts(payload.data || (Array.isArray(payload) ? payload : []));
-            } catch (error) {
-                console.log(error);
-            }
-        };
-        fetchProducts();
+    const [paymentMethod, setPaymentMethod] = React.useState('cash');
+    const [submitting, setSubmitting] = React.useState(false);
+
+    // Tải (lại) danh sách sản phẩm để có tồn kho mới nhất
+    const loadProducts = React.useCallback(async () => {
+        try {
+            const response = await axiosClient.get("/products");
+            const payload = response.data;
+            setProducts(payload.data || (Array.isArray(payload) ? payload : []));
+        } catch (error) {
+            setToast({ isOpen: true, type: 'error', message: errorMessage(error, 'Không tải được danh sách sản phẩm.') });
+        }
     }, []);
+
+    React.useEffect(() => {
+        loadProducts();
+    }, [loadProducts]);
+
+    // Thêm 1 sản phẩm vào giỏ, không vượt quá số lượng tồn kho
+    const addProductToCart = (product) => {
+        if ((product.stock_quantity || 0) <= 0) {
+            showToast('error', `"${product.name}" đã hết hàng.`);
+            return;
+        }
+        let exceeded = false;
+        setCart(prevCart => {
+            const existingItem = prevCart.find(item => item.id === product.id);
+            if (existingItem) {
+                if (existingItem.quantity >= product.stock_quantity) {
+                    exceeded = true;
+                    return prevCart;
+                }
+                return prevCart.map(item =>
+                    item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
+                );
+            }
+            return [...prevCart, { ...product, quantity: 1 }];
+        });
+        if (exceeded) showToast('error', `Chỉ còn ${product.stock_quantity} "${product.name}" trong kho.`);
+    };
+    const addProductRef = React.useRef(addProductToCart);
+    React.useEffect(() => { addProductRef.current = addProductToCart; });
 
     // Lưu trữ tham chiếu mới nhất của products để không bị stale closure
     const productsRef = React.useRef(products);
@@ -50,146 +81,46 @@ const POS = () => {
         productsRef.current = products;
     }, [products]);
 
-    // --- KHỞI TẠO CAMERA SCANNER ---
-    React.useEffect(() => {
-        let isUnmounted = false;
-        let html5QrCode = null;
-        let isVideoPlaying = false;
-
-        if (showCamera) {
-            // Xóa sạch các thẻ còn sót lại do React StrictMode render 2 lần
-            const readerEl = document.getElementById("reader");
-            if (readerEl) readerEl.innerHTML = "";
-
-            html5QrCode = new Html5Qrcode("reader");
-
-            const config = { 
-                fps: 30, // Tăng fps để nhận diện nhanh nhạy hơn
-                disableFlip: false, // Hỗ trợ quét linh hoạt
-                qrbox: (viewfinderWidth, viewfinderHeight) => {
-                    // Responsive qrbox linh hoạt cho cả mobile và máy tính
-                    const width = Math.min(300, Math.floor(viewfinderWidth * 0.8));
-                    const height = Math.min(200, Math.floor(viewfinderHeight * 0.6));
-                    return { width, height };
-                }
-            };
-            const onScanSuccess = (decodedText) => {
-                // Xử lý khi quét thành công
-                const product = productsRef.current.find(p => String(p.barcode) === String(decodedText));
-                if (product) {
-                    // Thêm vào giỏ hàng
-                    setCart(prevCart => {
-                        const existingItem = prevCart.find(item => item.id === product.id);
-                        if (existingItem) {
-                            return prevCart.map(item =>
-                                item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-                            );
-                        }
-                        return [...prevCart, { ...product, quantity: 1 }];
-                    });
-                } else {
-                    showToast('error', "Không tìm thấy sản phẩm có mã vạch: " + decodedText);
-                }
-            };
-
-            Html5Qrcode.getCameras().then(devices => {
-                if (isUnmounted) return;
-
-                if (devices && devices.length) {
-                    // Ép trình duyệt luôn dùng camera sau (mặt lưng điện thoại)
-                    html5QrCode.start(
-                        { facingMode: "environment" },
-                        config,
-                        onScanSuccess,
-                        () => { } // Bỏ qua lỗi parse
-                    ).then(() => {
-                        isVideoPlaying = true;
-                        // Nếu component đã bị tắt trong lúc camera đang khởi động, ta tắt ngay lập tức
-                        if (isUnmounted) {
-                            html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-                        }
-                    }).catch(err => {
-                        console.log("Lỗi khởi tạo camera sau, thử dùng camera mặc định:", err);
-                        // Fallback cho PC (không có camera sau)
-                        html5QrCode.start(
-                            devices[0].id,
-                            config,
-                            onScanSuccess,
-                            () => { }
-                        ).then(() => {
-                            isVideoPlaying = true;
-                            if (isUnmounted) {
-                                html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => { });
-                            }
-                        }).catch(fallbackErr => {
-                            console.log("Lỗi khởi tạo camera fallback:", fallbackErr);
-                        });
-                    });
-                } else {
-                    showToast('error', "Không tìm thấy camera trên thiết bị!");
-                }
-            }).catch(err => {
-                console.log("Lỗi getCameras:", err);
-            });
-        }
-
-        return () => {
-            isUnmounted = true;
-            if (html5QrCode) {
-                if (isVideoPlaying) {
-                    html5QrCode.stop().then(() => {
-                        html5QrCode.clear();
-                    }).catch(() => { });
-                } else {
-                    try { html5QrCode.clear(); } catch (e) { }
-                }
-            }
-        };
-    }, [showCamera]);
+    // --- QUÉT MÃ VẠCH BẰNG CAMERA ---
+    const handleScanned = (code) => {
+        const product = productsRef.current.find(p => String(p.barcode) === String(code));
+        if (product) addProductRef.current(product);
+        else showToast('error', 'Không tìm thấy sản phẩm có mã vạch: ' + code);
+    };
 
     // --- HÀM THANH TOÁN ---
+    // Chỉ gửi mã sản phẩm + số lượng. Giá và tổng tiền do server tính từ dữ liệu gốc.
     const handleCheckout = async () => {
-        if (cart.length === 0) return;
-
-        const orderData = {
-            total_amount: totalPrice,
-            payment_method: 'cash',
-            items: cart.map(item => ({
-                product_id: item.id,
-                quantity: item.quantity,
-                price: item.sell_price,
-                subtotal: item.quantity * item.sell_price
-            }))
-        };
-
+        if (cart.length === 0 || submitting) return;
+        setSubmitting(true);
         try {
-            const res = await axiosClient.post('/orders/create', orderData);
-            showToast('success', "Thanh toán thành công! Mã đơn: " + res.data.order_code);
-            setCart([]); // Xóa giỏ hàng
+            const res = await orderApi.create({
+                payment_method: paymentMethod,
+                items: cart.map(item => ({ product_id: item.id, quantity: item.quantity })),
+            });
+            showToast('success', `Thanh toán thành công ${formatCurrency(res.total_amount)} — Mã đơn: ${res.order_code}`);
+            setCart([]);
         } catch (error) {
-            console.error(error);
-            showToast('error', "Lỗi khi thanh toán: " + (error.response?.data?.message || error.message));
+            showToast('error', errorMessage(error, 'Thanh toán thất bại.'));
+        } finally {
+            setSubmitting(false);
+            loadProducts(); // cập nhật tồn kho mới nhất (kể cả khi quầy khác vừa bán)
         }
     };
 
     // --- CÁC HÀM XỬ LÝ GIỎ HÀNG ---
     const handleAddToCart = (product) => {
-        setCart(prevCart => {
-            const existingItem = prevCart.find(item => item.id === product.id);
-            if (existingItem) {
-                return prevCart.map(item =>
-                    item.id === product.id
-                        ? { ...item, quantity: item.quantity + 1 }
-                        : item
-                );
-            }
-            return [...prevCart, { ...product, quantity: 1 }];
-        });
+        addProductToCart(product);
         setSearchQuery(""); // Xóa thanh tìm kiếm sau khi thêm
         setShowDropdown(false);
     };
 
     const handleUpdateQuantity = (id, delta) => {
+        const stock = products.find(p => p.id === id)?.stock_quantity ?? Infinity;
+        if (delta > 0 && (cart.find(i => i.id === id)?.quantity || 0) >= stock) {
+            showToast('error', `Chỉ còn ${stock} sản phẩm trong kho.`);
+            return;
+        }
         setCart(prevCart => prevCart.map(item => {
             if (item.id === id) {
                 const newQuantity = item.quantity + delta;
@@ -219,21 +150,31 @@ const POS = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 flex flex-col overflow-hidden pb-16 md:pb-0">
-            <div className="z-20 relative bg-white">
+            <div className="z-20 relative bg-white md:bg-transparent">
                 <Header />
             </div>
 
             <div className="flex-1 flex flex-col md:flex-row p-0 md:p-6 md:gap-6 max-w-[1600px] w-full mx-auto relative h-[calc(100vh-60px)]">
 
                 {/* ================= CỘT TRÁI (TÌM KIẾM + CAMERA) ================= */}
-                <div className="relative w-full h-[50vh] md:h-full md:flex-1 md:rounded-3xl flex flex-col bg-white overflow-hidden shadow-inner border border-gray-100">
+                <div className="relative w-full h-[50vh] md:h-auto md:flex-1 md:rounded-3xl flex flex-col bg-white overflow-hidden shadow-inner border border-gray-100">
 
                     {/* THANH TÌM KIẾM */}
                     <div className="p-4 flex gap-2 border-b border-gray-100 z-30 bg-white shadow-sm shrink-0 relative">
-                        <div className="flex-1 relative flex items-center bg-gray-50 border-none rounded-xl focus-within:ring-2 focus-within:ring-pink-500 transition px-4 py-3">
+                        <div className="flex-1 relative flex items-center bg-gray-50 border-none rounded-xl focus-within:ring-2 focus-within:ring-brand-500 transition px-4 py-3">
                             <Search size={18} className="text-gray-400 mr-2" />
                             <input
                                 type="text"
+                                aria-label="Tìm sản phẩm"
+                                maxLength={100}
+                                onKeyDown={(e) => {
+                                    // Máy quét mã vạch USB gõ mã rồi nhấn Enter → thêm ngay sản phẩm khớp mã
+                                    if (e.key === 'Enter' && searchQuery.trim()) {
+                                        const exact = products.find(p => p.barcode && p.barcode === searchQuery.trim());
+                                        const target = exact || (filteredProducts.length === 1 ? filteredProducts[0] : null);
+                                        if (target) handleAddToCart(target);
+                                    }
+                                }}
                                 placeholder="Tìm tên sản phẩm hoặc mã vạch..."
                                 className="flex-1 bg-transparent outline-none font-medium text-gray-700"
                                 value={searchQuery}
@@ -267,8 +208,10 @@ const POS = () => {
                                                 <div className="flex-1 min-w-0">
                                                     <h4 className="text-sm font-bold text-gray-800 truncate">{item.name}</h4>
                                                     <div className="flex items-center gap-2 mt-0.5">
-                                                        <span className="text-pink-600 font-bold text-xs">{item.sell_price ? parseInt(item.sell_price).toLocaleString() : 0}đ</span>
-                                                        <span className="text-[10px] text-gray-400">Kho: {item.stock_quantity}</span>
+                                                        <span className="text-brand-600 font-bold text-xs">{item.sell_price ? parseInt(item.sell_price).toLocaleString() : 0}đ</span>
+                                                        <span className={`text-[10px] ${item.stock_quantity > 0 ? 'text-gray-400' : 'text-red-500 font-bold'}`}>
+                                                            {item.stock_quantity > 0 ? `Kho: ${item.stock_quantity}` : 'Hết hàng'}
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -283,7 +226,9 @@ const POS = () => {
                                 setSearchQuery("");
                                 setShowDropdown(false);
                             }}
-                            className={`p-3 rounded-xl transition-colors ${showCamera ? 'bg-pink-100 text-pink-600' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                            aria-label={showCamera ? 'Tắt camera quét mã' : 'Bật camera quét mã'}
+                            title={showCamera ? 'Tắt camera quét mã' : 'Bật camera quét mã'}
+                            className={`p-3 rounded-xl transition-colors ${showCamera ? 'bg-brand-100 text-brand-600' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                         >
                             <Camera size={24} />
                         </button>
@@ -291,37 +236,18 @@ const POS = () => {
 
                     {/* VÙNG CAMERA */}
                     {showCamera && (
-                        <div className="relative bg-zinc-900 w-full flex-1 flex items-center justify-center overflow-hidden transition-all duration-300">
-                            {/* Khu vực chứa video của Html5Qrcode */}
-                            <div id="reader" className="absolute inset-0 w-full h-full object-cover [&>video]:object-cover [&>video]:w-full [&>video]:h-full border-none"></div>
-
-                            {/* Lớp phủ trang trí Camera */}
-                            <div className="absolute inset-0 z-10 pointer-events-none flex flex-col items-center justify-center">
-                                <div className="relative w-64 h-64 sm:w-80 sm:h-80 flex flex-col items-center justify-center">
-                                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-pink-500 rounded-tl-2xl"></div>
-                                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-pink-500 rounded-tr-2xl"></div>
-                                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-pink-500 rounded-bl-2xl"></div>
-                                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-pink-500 rounded-br-2xl"></div>
-                                    <div className="absolute top-1/2 w-full h-0.5 bg-pink-500 shadow-[0_0_15px_3px_rgba(236,72,153,0.8)] animate-pulse"></div>
-                                </div>
-                            </div>
-
-                            <button className="absolute top-4 right-4 p-3 bg-black/40 text-white rounded-full backdrop-blur-md hover:bg-black/60 transition z-20 pointer-events-auto">
-                                <Maximize2 size={20} />
-                            </button>
-
-                            <div className="absolute bottom-10 bg-zinc-800/80 text-white px-4 py-2 rounded-full text-xs font-semibold flex items-center backdrop-blur-md z-20 shadow-lg border border-white/10 pointer-events-auto">
-                                <div className="w-2.5 h-2.5 bg-green-500 rounded-full mr-2.5 animate-pulse shadow-[0_0_8px_#22c55e]"></div>
-                                Đang tìm mã vạch...
-                            </div>
-                        </div>
+                        <BarcodeScanner
+                            className="w-full flex-1"
+                            onDetected={handleScanned}
+                            onError={(msg) => showToast('error', msg)}
+                        />
                     )}
 
                     {!showCamera && (
                         <div className="flex-1 flex flex-col items-center justify-center bg-gray-50/50 text-gray-400 p-6 text-center">
                             <Camera size={48} className="mb-4 opacity-20" />
-                            <p className="font-medium text-sm">Giao diện Camera đang bị ẩn.</p>
-                            <p className="text-xs mt-1">Bấm nút Camera ở góc phải thanh tìm kiếm để bật lại.</p>
+                            <p className="font-medium text-sm">Camera đang tắt.</p>
+                            <p className="text-xs mt-1">Bấm nút Camera để quét mã vạch, hoặc gõ tên / dùng máy quét mã vạch USB rồi nhấn Enter.</p>
                         </div>
                     )}
                 </div>
@@ -359,22 +285,22 @@ const POS = () => {
                         ) : (
                             cart.map(item => (
                                 <div key={item.id} className="relative flex items-center p-3 border border-gray-100 rounded-2xl shadow-sm bg-white overflow-hidden transition hover:shadow-md">
-                                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-pink-500"></div>
+                                    <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-brand-500"></div>
                                     <div className="w-14 h-14 bg-gray-100 rounded-xl mr-4 flex items-center justify-center shrink-0">
                                         <span className="text-gray-400 text-xs font-bold uppercase">{item.name.substring(0, 2)}</span>
                                     </div>
                                     <div className="flex-1 min-w-0 pr-2">
                                         <h3 className="font-bold text-gray-800 text-sm truncate">{item.name}</h3>
                                         <div className="flex items-center mt-1 space-x-2">
-                                            <span className="font-bold text-pink-600">{item.sell_price ? parseInt(item.sell_price).toLocaleString() : 0}đ</span>
+                                            <span className="font-bold text-brand-600">{item.sell_price ? parseInt(item.sell_price).toLocaleString() : 0}đ</span>
                                         </div>
                                     </div>
 
                                     {/* Cụm Tăng giảm số lượng */}
                                     <div className="flex items-center gap-2 bg-gray-50 p-1 rounded-xl">
-                                        <button onClick={() => handleUpdateQuantity(item.id, -1)} className="w-7 h-7 rounded-lg bg-white shadow-sm font-bold text-gray-600 hover:text-pink-600 transition-colors">-</button>
+                                        <button onClick={() => handleUpdateQuantity(item.id, -1)} className="w-7 h-7 rounded-lg bg-white shadow-sm font-bold text-gray-600 hover:text-brand-600 transition-colors">-</button>
                                         <span className="font-black text-gray-800 text-sm w-5 text-center">{item.quantity}</span>
-                                        <button onClick={() => handleUpdateQuantity(item.id, 1)} className="w-7 h-7 rounded-lg bg-white shadow-sm font-bold text-gray-600 hover:text-pink-600 transition-colors">+</button>
+                                        <button onClick={() => handleUpdateQuantity(item.id, 1)} className="w-7 h-7 rounded-lg bg-white shadow-sm font-bold text-gray-600 hover:text-brand-600 transition-colors">+</button>
                                     </div>
 
                                     <button onClick={() => handleRemoveItem(item.id)} className="ml-3 p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
@@ -387,16 +313,30 @@ const POS = () => {
 
                     {/* Footer tính tiền */}
                     <div className="p-4 md:p-6 space-y-4 bg-white border-t border-gray-50 flex-shrink-0 md:rounded-b-3xl">
+                        <div className="flex gap-2" role="radiogroup" aria-label="Phương thức thanh toán">
+                            {Object.entries(PAYMENT_LABELS).map(([key, label]) => (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={paymentMethod === key}
+                                    onClick={() => setPaymentMethod(key)}
+                                    className={`flex-1 py-2 rounded-xl text-xs font-bold border transition-colors ${paymentMethod === key ? 'bg-brand-50 border-brand-400 text-brand-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
                         <div className="flex justify-between items-center px-2">
                             <span className="text-gray-500 font-bold">Tổng thanh toán:</span>
-                            <span className="text-3xl font-black text-pink-600">{totalPrice.toLocaleString()}đ</span>
+                            <span className="text-3xl font-black text-brand-600">{formatCurrency(totalPrice)}</span>
                         </div>
                         <button
-                            disabled={cart.length === 0}
+                            disabled={cart.length === 0 || submitting}
                             onClick={handleCheckout}
-                            className="w-full py-4 bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold rounded-2xl flex items-center justify-center shadow-lg hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
+                            className="w-full py-4 bg-gradient-to-r from-brand-500 to-brand-500 text-white font-bold rounded-2xl flex items-center justify-center shadow-lg hover:opacity-90 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none"
                         >
-                            THANH TOÁN
+                            {submitting ? 'ĐANG XỬ LÝ...' : 'THANH TOÁN'}
                         </button>
                     </div>
 
